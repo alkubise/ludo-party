@@ -1,3 +1,20 @@
 {
-  "name":"ludo-party","version":"1.0.0","description":"Cartoon Ludo Party multiplayer game","main":"server.js","scripts":{"start":"node server.js"},"dependencies":{"express":"^4.21.2","socket.io":"^4.8.1"}
+  "name": "ludo-party",
+  "version": "1.0.0",
+  "description": "Ludo Party – premium mobile-first multiplayer Ludo (Arabic RTL first) built with Express and Socket.IO",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "node test/rules.test.js && node test/e2e.test.js && node test/features.test.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.7.5"
+  }
 }
