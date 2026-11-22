@@ -98,6 +98,68 @@ async function main() {
     assert.strictEqual(h.rooms, 0, 'room removed when no humans remain');
     console.log('ok  rematch keeps bots ready; room cleaned up when last human leaves');
 
+    // --- private chat: room chat, whispers, moderation, history
+    {
+      const c1 = client(); all.push(c1); await c1.ready;
+      const r2 = await req(c1.s, 'room:create', { name: 'Anna', avatar: 0, color: 'red' });
+      const c2 = client(), c3 = client(); all.push(c2, c3); await c2.ready; await c3.ready;
+      c1.msgs = []; c2.msgs = []; c3.msgs = [];
+      [c1, c2, c3].forEach((c) => c.s.on('chat:msg', (m) => c.msgs.push(m)));
+      const j2 = await req(c2.s, 'room:join', { code: r2.code, name: 'Bea', avatar: 1, color: 'green' });
+      const j3 = await req(c3.s, 'room:join', { code: r2.code, name: 'Cy', avatar: 2, color: 'yellow' });
+      assert(j2.ok && j3.ok);
+      // public message reaches everyone in the room (including the sender)
+      assert((await req(c1.s, 'chat:send', { text: '  hello   everyone  ' })).ok);
+      await sleep(80);
+      assert([c1, c2, c3].every((c) => c.msgs.length === 1 && c.msgs[0].text === 'hello everyone' && c.msgs[0].to === null && c.msgs[0].name === 'Anna'), 'public message delivered + whitespace collapsed');
+      // someone outside the room never receives it
+      const out = client(); all.push(out); await out.ready; out.msgs = []; out.s.on('chat:msg', (m) => out.msgs.push(m));
+      assert((await req(out.s, 'chat:send', { text: 'x' })).error === 'NOT_IN_ROOM', 'outsiders cannot chat');
+      // whisper: only sender and target receive it
+      assert((await req(c2.s, 'chat:send', { text: 'psst secret', to: 'red' })).ok);
+      await sleep(80);
+      assert(c1.msgs.some((m) => m.text === 'psst secret' && m.to === 'red' && m.toName === 'Anna'), 'target got the whisper');
+      assert(c2.msgs.some((m) => m.text === 'psst secret'), 'sender got a copy');
+      assert(!c3.msgs.some((m) => m.text === 'psst secret'), 'third player did NOT receive the whisper');
+      assert(!out.msgs.length, 'outsider received nothing');
+      // validation
+      assert((await req(c1.s, 'chat:send', { text: '   ' })).error === 'BAD_INPUT', 'empty rejected');
+      assert((await req(c1.s, 'chat:send', { text: 'hi', to: 'red' })).error === 'BAD_INPUT', 'cannot whisper yourself');
+      assert((await req(c1.s, 'chat:send', { text: 'hi', to: 'blue' })).error === 'BAD_INPUT', 'cannot whisper an empty seat');
+      assert((await req(c1.s, 'chat:send', { text: 'hi', to: 'nope' })).error === 'BAD_INPUT', 'bad colour rejected');
+      assert((await req(c1.s, 'chat:send', { text: 'x'.repeat(500) })).ok);
+      await sleep(60);
+      assert(c2.msgs[c2.msgs.length - 1].text.length === 200, 'long text capped at 200');
+      assert((await req(c3.s, 'chat:send', { text: 'a\u202eevil\u200b<b>x</b>' })).ok);
+      await sleep(60);
+      const spoof = c1.msgs[c1.msgs.length - 1].text;
+      assert(!/[\u202e\u200b<>]/.test(spoof) && spoof === 'aevilbx/b', 'bidi override, zero-width and angle brackets stripped: ' + spoof);
+      // rate limit: 5 messages per 6 s
+      const rl = client(); all.push(rl); await rl.ready;
+      const r3 = await req(rl.s, 'room:create', { name: 'Rate', avatar: 3, color: 'red' });
+      let ok = 0, limited = 0;
+      for (let i = 0; i < 8; i++) { const x = await req(rl.s, 'chat:send', { text: 'm' + i }); if (x.ok) ok++; else if (x.error === 'RATE') limited++; }
+      assert(ok === 5 && limited === 3, 'rate limit 5 per 6s (ok=' + ok + ', limited=' + limited + ')');
+      // history: late joiner sees public messages only; participants see their whisper after rejoin
+      const late = client(); all.push(late); await late.ready;
+      let hist = null; late.s.on('chat:history', (h) => { hist = h; });
+      assert((await req(late.s, 'room:join', { code: r2.code, name: 'Late', avatar: 4, color: 'blue' })).ok);
+      await sleep(80);
+      assert(hist && hist.some((m) => m.text === 'hello everyone') && !hist.some((m) => m.text === 'psst secret'), 'late joiner gets public history only');
+      let h2 = null; c2.s.on('chat:history', (h) => { h2 = h; });
+      c2.s.disconnect(); await sleep(60); c2.s.connect(); await c2.ready;
+      assert((await req(c2.s, 'room:rejoin', { code: r2.code, pid: j2.pid })).ok);
+      await sleep(80);
+      assert(h2 && h2.some((m) => m.text === 'psst secret'), 'whisper participant gets it back after rejoin');
+      // host can switch chat off
+      assert((await req(c1.s, 'room:settings', { chat: false })).ok);
+      assert((await req(c2.s, 'chat:send', { text: 'blocked?' })).error === 'CHAT_OFF', 'chat can be disabled by the host');
+      assert((await req(c2.s, 'room:settings', { chat: true })).error === 'NOT_HOST', 'only the host changes it');
+      assert((await req(c1.s, 'room:settings', { chat: true })).ok);
+      assert((await req(c2.s, 'chat:send', { text: 'back on' })).ok);
+      console.log('ok  private chat: room + whisper isolation, validation, sanitising, rate limit, history, host switch');
+    }
+
     // --- bonus rules: with bonuses off a capture must pass the turn; verify via a simulated sequence of many games
     console.log('\nALL FEATURE CHECKS PASSED');
   } finally {

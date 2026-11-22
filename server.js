@@ -27,6 +27,7 @@ const DEFAULT_TIMER = FAST ? 0 : 30;
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const EMOJIS = ['😂', '😎', '😡', '😱', '😭', '🤯', '👏', '🔥', '👑', '🏁', '🤡', '💀'];
 const QUICK_CHAT = 6;
+const CHAT_MAX = 200, CHAT_KEEP = 60;
 const AVATARS = 12;
 
 const rooms = new Map();
@@ -47,6 +48,9 @@ const seated = (r) => L.COLORS.filter((c) => r.players[c]);
 const active = (r) => seated(r).filter((c) => !r.players[c].left);
 const humans = (r) => active(r).filter((c) => !r.players[c].bot);
 const automated = (p) => !!p && (p.bot || p.auto || !p.connected);
+// Chat text: collapse whitespace, drop control chars and invisible bidi/zero-width characters (RTL spoofing), cap the length.
+const cleanChat = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ')
+  .replace(/[\u0000-\u001f\u007f<>\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, '').trim().slice(0, CHAT_MAX);
 const newStats = () => ({ rolls: 0, sixes: 0, moves: 0, captures: 0, captured: 0 });
 
 function genCode() {
@@ -107,7 +111,8 @@ function newRoom() {
     code: genCode(), players: {}, host: null, phase: 'lobby', turn: null, dice: null, legal: [],
     rollId: 0, actionId: 0, action: null, sixes: 0, winner: null, last: Date.now(),
     timer: null, timerKind: null, timerKey: null, deadline: null,
-    settings: { timer: DEFAULT_TIMER, bonusCapture: true, bonusHome: true }
+    settings: { timer: DEFAULT_TIMER, bonusCapture: true, bonusHome: true, chat: true },
+    chatLog: [], chatSeq: 0
   };
 }
 
@@ -339,6 +344,11 @@ function hostCtx(socket, cb, phase) {
   return c;
 }
 
+// Messages a given player may see: public ones, plus private ones they sent or received.
+function chatHistoryFor(r, p) {
+  return r.chatLog.filter((e) => !e.toPid || e.fromPid === p.pid || e.toPid === p.pid).map((e) => e.m);
+}
+
 /* ---------- sockets ---------- */
 io.on('connection', (socket) => {
   socket.data = { code: null, color: null };
@@ -379,6 +389,7 @@ io.on('connection', (socket) => {
     leaveCurrent(socket);
     const p = addPlayer(r, socket, prof, color);
     cb({ ok: true, code: r.code, pid: p.pid, color });
+    socket.emit('chat:history', chatHistoryFor(r, p));
     notice(r, 'joined', p);
     broadcast(r);
   });
@@ -395,6 +406,7 @@ io.on('connection', (socket) => {
     socket.data.code = r.code; socket.data.color = p.color;
     socket.join(r.code);
     cb({ ok: true, code: r.code, pid: p.pid, color: p.color });
+    socket.emit('chat:history', chatHistoryFor(r, p));
     notice(r, 'back', p);
     sync(r);
   });
@@ -440,6 +452,7 @@ io.on('connection', (socket) => {
     }
     if (d.bonusCapture !== undefined) s.bonusCapture = !!d.bonusCapture;
     if (d.bonusHome !== undefined) s.bonusHome = !!d.bonusHome;
+    if (d.chat !== undefined) s.chat = !!d.chat;
     cb({ ok: true });
     broadcast(c.r);
   });
@@ -561,6 +574,43 @@ io.on('connection', (socket) => {
     if (throttled(c)) return cb({ ok: false, error: 'RATE' });
     io.to(c.r.code).emit('game:chat', { color: c.p.color, id });
     cb({ ok: true });
+  });
+
+  socket.on('chat:send', (d, cb) => {
+    cb = ack(cb);
+    const c = ctxOf(socket);
+    if (!c) return cb({ ok: false, error: 'NOT_IN_ROOM' });
+    const { r, p } = c;
+    if (!r.settings.chat) return cb({ ok: false, error: 'CHAT_OFF' });
+    d = d || {};
+    const text = cleanChat(d.text);
+    if (!text) return cb({ ok: false, error: 'BAD_INPUT' });
+    let target = null;
+    if (d.to != null) {
+      target = L.COLORS.includes(d.to) ? r.players[d.to] : null;
+      if (!target || target === p || target.bot || target.left) return cb({ ok: false, error: 'BAD_INPUT' });
+    }
+    const now = Date.now();
+    p.chatTimes = (p.chatTimes || []).filter((t) => now - t < 6000);
+    if (p.chatTimes.length >= 5) return cb({ ok: false, error: 'RATE' }); // max 5 messages per 6 seconds
+    p.chatTimes.push(now);
+    const m = { id: ++r.chatSeq, from: p.color, name: p.name, text, to: target ? target.color : null, toName: target ? target.name : null, t: now };
+    r.chatLog.push({ m, fromPid: p.pid, toPid: target ? target.pid : null });
+    if (r.chatLog.length > CHAT_KEEP) r.chatLog.shift();
+    r.last = now;
+    if (!target) io.to(r.code).emit('chat:msg', m);          // everyone in the room
+    else {                                                     // private: only the two people involved
+      if (p.sid) io.to(p.sid).emit('chat:msg', m);
+      if (target.sid) io.to(target.sid).emit('chat:msg', m);
+    }
+    cb({ ok: true, id: m.id });
+  });
+
+  socket.on('chat:history', (d, cb) => {
+    cb = ack(cb);
+    const c = ctxOf(socket);
+    if (!c) return cb({ ok: false, error: 'NOT_IN_ROOM' });
+    cb({ ok: true, list: chatHistoryFor(c.r, c.p) });
   });
 
   socket.on('disconnect', () => {

@@ -18,7 +18,7 @@
   function saveSession() { try { if (S.me) sessionStorage.setItem('ludo.session', JSON.stringify(S.me)); } catch (e) { /* ignore */ } }
   function clearSession() { try { sessionStorage.removeItem('ludo.session'); } catch (e) { /* ignore */ } }
 
-  var prefs = load('ludo.prefs', { lang: 'ar', sfx: true, music: false, autoMove: true, rotate: true });
+  var prefs = load('ludo.prefs', { lang: 'ar', sfx: true, music: false, autoMove: true, rotate: true, gfx: 'auto' });
   var profile = load('ludo.profile', { name: '', avatar: Math.floor(Math.random() * (AVATARS.length - 1)), color: 'red', games: 0, wins: 0 });
   if (!(profile.avatar >= 0 && profile.avatar < AVATARS.length - 1)) profile.avatar = 0; // the robot avatar is reserved for bots
   if (L.COLORS.indexOf(profile.color) < 0) profile.color = 'red';
@@ -27,7 +27,8 @@
     screen: 'menu', room: null, me: null, connected: false, everConnected: false, wasDown: false,
     board: null, lastRollId: -1, lastActionId: null, prevTurn: null, diceAnim: false, rolling: false, moving: false,
     resultShown: false, joinColor: null, joinTaken: [], joinOk: false, peekTimer: null, diceTimer: null,
-    chips: null, rot: 0, spin: 0, clockOffset: 0, autoPick: null, lastTick: 0
+    chips: null, rot: 0, spin: 0, clockOffset: 0, autoPick: null, lastTick: 0,
+    gfx: null, is3d: false, autoGfx: null, forceClassic: false, diceBuilt: false
   };
 
   var socket = io({ reconnectionDelayMax: 3000 });
@@ -144,6 +145,7 @@
 
   /* ---------- session / room lifecycle ---------- */
   function afterEnterRoom(r) {
+    if (!S.me || S.me.code !== r.code) resetChat();
     S.me = { code: r.code, pid: r.pid, color: r.color };
     saveSession();
     if (S.room && S.room.code === r.code) handleState(S.room);
@@ -168,6 +170,7 @@
     request('room:leave', {}, { noLoader: true });
     clearSession();
     S.me = null; S.room = null; S.resultShown = false;
+    resetChat();
     $('#modal-result').classList.remove('open');
     if (S.board) S.board.snap = null;
     show('menu');
@@ -206,6 +209,7 @@
     S.room = st;
     if (st.now) S.clockOffset = st.now - Date.now();
     if (!S.me || S.me.code !== st.code) return;
+    if (chatOpen()) { renderChatTo(); $('#chat-input').disabled = !chatOn(); $('#btn-chat-send').disabled = !chatOn(); $('#chat-off').hidden = chatOn(); }
     S.moving = false;
     if (st.phase === 'lobby') {
       if (S.screen !== 'lobby') { S.resultShown = false; $('#modal-result').classList.remove('open'); $('#modal-result').hidden = true; if (S.board) S.board.snap = null; show('lobby'); }
@@ -265,7 +269,7 @@
     // host rules
     var s = st.settings;
     $$('#seg-timer button').forEach(function (b) { b.classList.toggle('on', +b.getAttribute('data-t') === s.timer); b.disabled = !iAmHost; });
-    [['#rs-cap', s.bonusCapture], ['#rs-home', s.bonusHome]].forEach(function (x) { var sw = $(x[0]); sw.setAttribute('aria-checked', String(x[1])); sw.disabled = !iAmHost; });
+    [['#rs-cap', s.bonusCapture], ['#rs-home', s.bonusHome], ['#rs-chat', s.chat !== false]].forEach(function (x) { var sw = $(x[0]); sw.setAttribute('aria-checked', String(x[1])); sw.disabled = !iAmHost; });
     $('#btn-addbot').hidden = !iAmHost || count >= 4;
 
     var hint = $('#lobby-hint'), rb = $('#btn-ready'), sb = $('#btn-start');
@@ -311,16 +315,69 @@
     st.players.forEach(function (p) { if (p && !p.left) o[p.color] = p.tokens.slice(); });
     return o;
   }
-  function enterGame(st) {
-    if (!S.board) {
-      S.board = new window.Board($('#board'));
-      S.board.onPick = pick;
-      S.board.onStep = function () { window.Sound.step(); };
-      S.board.onCapture = function () { window.Sound.capture(); vibrate(60); };
-      S.board.onFinish = function () { window.Sound.home(); };
-      S.board.onIdle = renderControls;
-      buildDice();
+  /* ----- graphics tiers: 3D high / medium / low, or the 2D classic board ----- */
+  function has3D() { return !!(window.Board3D && window.Board3D.supported()); }
+  function detectGfx() {
+    if (!has3D()) return 'classic';
+    var ua = navigator.userAgent || '', mem = navigator.deviceMemory || 0, cores = navigator.hardwareConcurrency || 4;
+    var mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(ua) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(ua));
+    if (!mobile) return 'high';
+    if (mem && mem <= 3) return 'low';
+    if (mem >= 6 || (!mem && cores >= 6)) return 'high';
+    return 'medium';
+  }
+  function wantGfx() {
+    if (S.forceClassic || !has3D()) return 'classic';
+    var g = new URLSearchParams(location.search).get('gfx') || prefs.gfx || 'auto';
+    if (g === 'auto') g = S.autoGfx || (S.autoGfx = detectGfx());
+    return ['high', 'medium', 'low', 'classic'].indexOf(g) >= 0 ? g : 'high';
+  }
+  function onSlow() {
+    if (prefs.gfx !== 'auto') return; // never override an explicit choice
+    var order = ['high', 'medium', 'low', 'classic'], i = order.indexOf(S.gfx);
+    if (i < 0 || i >= 3) return;
+    S.autoGfx = order[i + 1];
+    toast(T('gfxLowered'), 'warn');
+    switchBoard();
+  }
+  function onLost() { S.forceClassic = true; toast(T('gfxFallback'), 'warn'); switchBoard(); }
+  function wireBoard(b) {
+    b.onPick = pick;
+    b.onStep = function () { window.Sound.step(); };
+    b.onCapture = function () { window.Sound.capture(); vibrate(60); };
+    b.onFinish = function () { window.Sound.home(); };
+    b.onIdle = renderControls;
+    b.onDiceTap = function () { roll(); };
+    return b;
+  }
+  function ensureBoard() {
+    var mode = wantGfx();
+    if (S.board && S.gfx === mode) return;
+    if (S.board && S.board.dispose) S.board.dispose();
+    S.board = null;
+    var b = null;
+    if (mode !== 'classic') {
+      try { b = new window.Board3D($('#board3d'), { quality: mode, onSlow: onSlow, onLost: onLost }); }
+      catch (e) { if (window.console) console.warn('3D board unavailable, using 2D:', e && e.message); b = null; mode = 'classic'; S.forceClassic = true; }
     }
+    S.is3d = !!b;
+    if (!b) { mode = 'classic'; b = new window.Board($('#board')); }
+    S.gfx = mode; S.board = wireBoard(b);
+    $('.board-frame').classList.toggle('is3d', S.is3d);
+    $('#screen-game').classList.toggle('gfx3d', S.is3d);
+    // #board is an SVG element: it has no .hidden property, so use the attribute
+    if (S.is3d) $('#board').setAttribute('hidden', ''); else $('#board').removeAttribute('hidden');
+    $('#board3d').hidden = !S.is3d;
+    if (!S.diceBuilt) { buildDice(); S.diceBuilt = true; }
+  }
+  function switchBoard() {
+    ensureBoard();
+    syncSettingsUI();
+    if (S.room && S.me && S.screen === 'game') { S.rot = -1; renderGame(S.room, true); }
+  }
+
+  function enterGame(st) {
+    ensureBoard();
     buildChips();
     S.rot = rotationFor();
     S.board.setRotation(S.rot, false);
@@ -330,7 +387,7 @@
     S.lastActionId = st.action ? st.action.id : null;
     S.prevTurn = null;
     S.diceAnim = false;
-    orient(st.dice || 1, false);
+    setDiceFace(st.dice || 1);
     show('game');
   }
 
@@ -351,7 +408,19 @@
     cube.style.transition = spin ? 'transform .95s cubic-bezier(.15,.7,.25,1)' : 'none';
     cube.style.transform = 'rotateX(' + (o[0] + 720 * S.spin) + 'deg) rotateY(' + (o[1] + 1080 * S.spin) + 'deg)';
   }
+  function setDiceFace(v) { if (S.is3d) S.board.setDiceValue(v); else orient(v, false); }
   function animateDice(value) {
+    if (S.is3d) { // physical 3D dice: throw it on the table, it lands on the server's value
+      clearTimeout(S.diceTimer);
+      S.diceAnim = true;
+      window.Sound.rattle();
+      var done = false;
+      var fin = function () { if (done) return; done = true; clearTimeout(S.diceTimer); S.diceAnim = false; renderControls(); };
+      S.board.onDiceBounce = function (seg) { window.Sound.thud(seg - 1); };
+      S.board.rollDice(value, fin);
+      S.diceTimer = setTimeout(fin, 5000);
+      return;
+    }
     var dice = $('#dice');
     clearTimeout(S.diceTimer);
     S.diceAnim = true;
@@ -436,6 +505,7 @@
     btn.disabled = !canRoll;
     btn.classList.toggle('pulse', canRoll);
     $('#dice').disabled = !canRoll;
+    if (S.is3d && board.setDiceActive) board.setDiceActive(canRoll ? window.Board3D.PAL[S.me.color].main : null);
     $('#dice').classList.toggle('idle', st.dice === null);
     $('#dice').classList.toggle('mine', mine);
     var canPick = mine && st.dice !== null && st.legal.length > 0 && !S.diceAnim && !busy && !S.moving;
@@ -542,10 +612,95 @@
     profile.games = (profile.games || 0) + 1;
     if (won) profile.wins = (profile.wins || 0) + 1;
     save('ludo.profile', profile); renderMenuStats();
+    if (S.board && S.board.celebrate) S.board.celebrate(st.winner);
     openModal('modal-result');
     confetti();
     window.Sound.win();
     vibrate([80, 40, 80]);
+  }
+
+  /* ---------- private chat (room chat + whispers, free: plain Socket.IO, nothing stored on disk) ---------- */
+  var CH = { list: [], unread: 0, to: null, muted: {} };
+  function chatOn() { return !S.room || !S.room.settings || S.room.settings.chat !== false; }
+  function chatOpen() { return !$('#modal-chat').hidden; }
+  function renderChatBadges() {
+    $$('.chat-badge').forEach(function (b) { b.textContent = CH.unread > 9 ? '9+' : String(CH.unread); b.hidden = !CH.unread; });
+  }
+  function resetChat() { CH.list = []; CH.unread = 0; CH.to = null; CH.muted = {}; renderChatBadges(); if (chatOpen()) renderChat(); }
+  function toggleMute(color, name) {
+    CH.muted[color] = !CH.muted[color];
+    toast(T(CH.muted[color] ? 'chatMuteOn' : 'chatMuteOff', { name: name }));
+    renderChat();
+  }
+  function msgNode(m) {
+    var mine = m._mine !== undefined ? m._mine : !!(S.me && m.from === S.me.color), muted = !mine && !!CH.muted[m.from];
+    var d = document.createElement('div'), who = document.createElement(mine ? 'span' : 'button'), tx = document.createElement('div');
+    d.className = 'msg' + (mine ? ' me' : '') + (m.to ? ' priv' : '') + (muted ? ' muted' : '');
+    who.className = 'msg-who';
+    who.textContent = m.name + (m.to ? ' · ' + (mine ? T('chatPrivTo', { name: m.toName }) : T('chatPrivFrom')) : '');
+    if (!mine) { who.type = 'button'; who.addEventListener('click', function () { toggleMute(m.from, m.name); }); }
+    tx.className = 'msg-text'; tx.setAttribute('dir', 'auto');
+    tx.textContent = muted ? T('chatMuted') : m.text; // textContent only: messages can never inject HTML
+    d.appendChild(who); d.appendChild(tx);
+    return d;
+  }
+  function renderChatTo() {
+    var box = $('#chat-to'), st = S.room;
+    box.innerHTML = '';
+    var targets = [];
+    if (st && S.me) st.players.forEach(function (p) { if (p && !p.bot && !p.left && p.color !== S.me.color) targets.push(p); });
+    if (CH.to && !targets.some(function (p) { return p.color === CH.to; })) CH.to = null; // whisper target left
+    var mk = function (label, color) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.textContent = label;
+      b.className = 'chip-to' + (CH.to === color ? ' on' : '') + (color ? ' priv' : '');
+      b.addEventListener('click', function () { window.Sound.click(); CH.to = color; renderChat(); });
+      box.appendChild(b);
+    };
+    mk(T('chatAll'), null);
+    targets.forEach(function (p) { mk(nameOf(st, p), p.color); });
+    box.hidden = !targets.length;
+  }
+  function renderChat() {
+    var box = $('#chat-list'), st = S.room, on = chatOn();
+    box.innerHTML = '';
+    if (!CH.list.length) { var e = document.createElement('div'); e.className = 'chat-empty'; e.textContent = T('chatEmpty'); box.appendChild(e); }
+    CH.list.forEach(function (m) { box.appendChild(msgNode(m)); });
+    box.scrollTop = box.scrollHeight;
+    $('#chat-input').disabled = !on; $('#btn-chat-send').disabled = !on; $('#chat-off').hidden = on;
+    renderChatTo();
+    var tp = CH.to && st ? playerOf(st, CH.to) : null;
+    $('#chat-input').placeholder = tp ? T('chatWhisperTo', { name: nameOf(st, tp) }) : T('chatPh');
+  }
+  function openChat() {
+    if (!S.me) return;
+    CH.unread = 0; renderChatBadges();
+    $('#emoji-panel').hidden = true;
+    openModal('modal-chat');
+    renderChat();
+    if (!('ontouchstart' in window) && chatOn()) setTimeout(function () { $('#chat-input').focus(); }, 250); // no auto-keyboard on phones
+  }
+  function sendChat() {
+    var inp = $('#chat-input'), text = inp.value.trim();
+    if (!text || !chatOn()) return;
+    var d = { text: text };
+    if (CH.to) d.to = CH.to;
+    request('chat:send', d, { noLoader: true }).then(function (r) {
+      if (r.ok) inp.value = '';
+      else { window.Sound.error(); toast(errText(r.error), 'bad'); }
+    });
+  }
+  function onChatMsg(m) {
+    if (!S.me || CH.list.some(function (x) { return x.id === m.id; })) return;
+    m._mine = m.from === S.me.color;
+    CH.list.push(m);
+    if (CH.list.length > 80) CH.list.shift();
+    var muted = !m._mine && CH.muted[m.from];
+    if (chatOpen()) { renderChat(); return; }
+    if (m._mine || muted) return;
+    CH.unread++; renderChatBadges();
+    toast(m.name + (m.to ? ' (' + T('chatPrivFrom') + ')' : '') + ': ' + (m.text.length > 46 ? m.text.slice(0, 46) + '…' : m.text), 'chat');
+    window.Sound.pop();
   }
 
   /* ---------- reactions & quick chat ---------- */
@@ -573,6 +728,13 @@
       q.appendChild(b);
     })(i);
     p.appendChild(q);
+    var co = document.createElement('button');
+    co.type = 'button'; co.className = 'chat-open';
+    co.innerHTML = '<svg class="ic"><use href="#i-chat"/></svg><span></span><span class="chat-badge" hidden></span>';
+    co.children[1].textContent = T('chatOpen');
+    co.addEventListener('click', function () { window.Sound.click(); openChat(); });
+    p.appendChild(co);
+    renderChatBadges();
   }
   function floatBubble(color, text, chat) {
     var anchor = S.screen === 'game' && S.chips ? S.chips[color] : $('.slot[data-color="' + color + '"]');
@@ -600,10 +762,14 @@
     $('#tg-rot').setAttribute('aria-checked', String(prefs.rotate));
     $('#lang-ar').classList.toggle('on', prefs.lang === 'ar');
     $('#lang-en').classList.toggle('on', prefs.lang === 'en');
+    $$('#seg-gfx button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-gfx') === (prefs.gfx || 'auto')); });
+    var note = $('#gfx-note');
+    if (note) note.textContent = has3D() ? '' : T('gfxNote2d');
   }
   function applyLang() {
     window.I18N.setLang(prefs.lang);
     syncSettingsUI(); renderMenuStats(); buildEmojiPanel();
+    if (chatOpen()) renderChat();
     renderCreateColors(); renderJoinColors();
     if ($('#inp-code').value.trim().length === 5) peekCode();
     if (S.room && S.me) {
@@ -672,15 +838,18 @@
     $$('#seg-timer button').forEach(function (b) {
       b.addEventListener('click', function () { window.Sound.click(); request('room:settings', { timer: +b.getAttribute('data-t') }, { noLoader: true }).then(function (r) { if (!r.ok) toast(errText(r.error), 'bad'); }); });
     });
-    [['#rs-cap', 'bonusCapture'], ['#rs-home', 'bonusHome']].forEach(function (x) {
+    [['#rs-cap', 'bonusCapture'], ['#rs-home', 'bonusHome'], ['#rs-chat', 'chat']].forEach(function (x) {
       $(x[0]).addEventListener('click', function () {
         if (!S.room) return;
-        var d = {}; d[x[1]] = !S.room.settings[x[1]];
+        var d = {}; d[x[1]] = x[1] === 'chat' ? !chatOn() : !S.room.settings[x[1]];
         window.Sound.click();
         request('room:settings', d, { noLoader: true }).then(function (r) { if (!r.ok) toast(errText(r.error), 'bad'); });
       });
     });
 
+    $('#btn-lobby-chat').addEventListener('click', function () { window.Sound.click(); openChat(); });
+    $('#btn-chat-send').addEventListener('click', sendChat);
+    $('#chat-input').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); sendChat(); } });
     $('#btn-roll').addEventListener('click', roll);
     $('#dice').addEventListener('click', roll);
     $('#btn-emoji').addEventListener('click', function (e) { e.stopPropagation(); window.Sound.click(); var p = $('#emoji-panel'); p.hidden = !p.hidden; });
@@ -705,6 +874,14 @@
     $('#tg-music').addEventListener('click', function () { togglePref('music', function () { window.Sound.setMusic(prefs.music); }); });
     $('#tg-auto').addEventListener('click', function () { togglePref('autoMove', function () { renderControls(); }); });
     $('#tg-rot').addEventListener('click', function () { togglePref('rotate', function () { if (S.screen === 'game' && S.room) renderGame(S.room, false); }); });
+    $$('#seg-gfx button').forEach(function (b) {
+      b.addEventListener('click', function () {
+        window.Sound.click();
+        prefs.gfx = b.getAttribute('data-gfx'); S.autoGfx = null; S.forceClassic = false;
+        save('ludo.prefs', prefs); syncSettingsUI();
+        if (S.screen === 'game') switchBoard();
+      });
+    });
     $$('[data-lang]').forEach(function (b) { b.addEventListener('click', function () { prefs.lang = b.getAttribute('data-lang'); save('ludo.prefs', prefs); applyLang(); window.Sound.click(); }); });
 
     document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible' && !socket.connected) socket.connect(); });
@@ -735,7 +912,16 @@
     toast(T('n.' + n.key, { name: nm }), n.key === 'disc' || n.key === 'left' || n.key === 'autopilot' ? 'warn' : 'good');
   });
   socket.on('game:emoji', function (e) { floatBubble(e.color, e.emoji, false); });
+  socket.on('chat:msg', onChatMsg);
+  socket.on('chat:history', function (list) {
+    if (!S.me || !Array.isArray(list)) return;
+    CH.list = list.map(function (m) { m._mine = m.from === S.me.color; return m; });
+    if (chatOpen()) renderChat();
+  });
   socket.on('game:chat', function (m) { floatBubble(m.color, T('chat' + m.id), true); });
+
+  // test hook (only with ?debug=1): lets automated tests find on-screen positions of 3D objects
+  if (/[?&]debug=1/.test(location.search)) window.__ludo = { S: S };
 
   /* ---------- boot ---------- */
   window.Sound.setSfx(prefs.sfx);

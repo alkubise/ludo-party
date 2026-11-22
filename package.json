@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "node test/rules.test.js && node test/e2e.test.js && node test/features.test.js"
+    "test": "node test/rules.test.js && node test/e2e.test.js && node test/features.test.js && node test/board3d.test.js"
   },
   "engines": { "node": ">=18" },
   "dependencies": {

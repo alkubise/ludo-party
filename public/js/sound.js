@@ -50,6 +50,8 @@
     turn: function () { play(function () { tone(784, 0.12, { type: 'sine', gain: 0.14 }); tone(1047, 0.18, { when: 0.1, type: 'sine', gain: 0.14 }); }); },
     pop: function () { play(function () { tone(500, 0.12, { type: 'sine', to: 900, gain: 0.14 }); }); },
     win: function () { play(function () { [523, 659, 784, 1047, 784, 1047, 1319].forEach(function (f, i) { tone(f, 0.28, { when: i * 0.13, type: 'triangle', gain: 0.18 }); }); }); },
+    rattle: function () { play(function () { for (var i = 0; i < 6; i++) noise(0.04, 0.45, 1500 + Math.random() * 1800, i * 0.06); }); },
+    thud: function (n) { play(function () { n = n | 0; var v = [0.3, 0.2, 0.12, 0.08][n] || 0.06; tone(150 - n * 18, 0.13, { type: 'sine', to: 55, gain: v }); noise(0.05, v * 1.3, 500); }); },
     tick: function () { play(function () { tone(1200, 0.04, { type: 'square', gain: 0.06 }); }); },
     error: function () { play(function () { tone(200, 0.15, { type: 'square', gain: 0.07 }); }); }
   };
