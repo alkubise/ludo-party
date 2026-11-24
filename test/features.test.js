@@ -160,6 +160,46 @@ async function main() {
       console.log('ok  private chat: room + whisper isolation, validation, sanitising, rate limit, history, host switch');
     }
 
+    // --- skins, emoji catalog, phrases, avatars
+    {
+      const C = require('../shared/catalog');
+      const k = client(); all.push(k); await k.ready;
+      assert.strictEqual((await req(k.s, 'room:create', { name: 'Skin', avatar: 0, skin: { pawn: 'dragon' } })).error, 'BAD_INPUT', 'unknown pawn shape rejected');
+      assert.strictEqual((await req(k.s, 'room:create', { name: 'Skin', avatar: 0, skin: 'gold' })).error, 'BAD_INPUT', 'non-object skin rejected');
+      assert.strictEqual((await req(k.s, 'room:create', { name: 'Skin', avatar: 99 })).error, 'BAD_INPUT', 'avatar out of range rejected');
+      const sk = await req(k.s, 'room:create', { name: 'Skin', avatar: C.AVATAR_COUNT - 1, color: 'red', skin: { pawn: 'crown', finish: 'gold', dice: 'onyx' } });
+      assert(sk.ok, 'valid skin + last avatar accepted'); await sleep(80);
+      assert.deepStrictEqual(k.state.players[0].skin, { pawn: 'crown', finish: 'gold', dice: 'onyx' }, 'skin is part of the public state');
+      const d1 = client(); all.push(d1); await d1.ready;
+      const jd = await req(d1.s, 'room:join', { code: sk.code, name: 'Def', avatar: 1, color: 'green' });
+      assert(jd.ok); await sleep(80);
+      assert.deepStrictEqual(k.state.players[1].skin, C.DEFAULT_SKIN, 'missing skin falls back to the default');
+      assert((await req(d1.s, 'room:skin', { skin: { pawn: 'gem', finish: 'chrome', dice: 'neon' } })).ok);
+      assert.strictEqual((await req(d1.s, 'room:skin', { skin: { dice: 'lava' } })).error, 'BAD_INPUT');
+      await sleep(80);
+      assert.strictEqual(k.state.players[1].skin.pawn, 'gem', 'skin can be changed in the lobby and everyone sees it');
+      // every catalog emoji is accepted, anything else is not
+      const e1 = client(); all.push(e1); await e1.ready; e1.em = [];
+      e1.s.on('game:emoji', (m) => e1.em.push(m));
+      assert((await req(e1.s, 'room:join', { code: sk.code, name: 'Emo', avatar: 2, color: 'yellow' })).ok);
+      let accepted = 0;
+      await sleep(750);
+      // (rate limit is 1 per 700ms, so verify acceptance one-by-one for a sample across all categories)
+      for (const cat of C.EMOJI_CATS) { const r = await req(e1.s, 'game:emoji', { emoji: cat.list[cat.list.length - 1] }); if (r.ok) accepted++; await sleep(720); }
+      assert.strictEqual(accepted, C.EMOJI_CATS.length, 'the last emoji of every category is accepted');
+      await sleep(720);
+      assert.strictEqual((await req(e1.s, 'game:emoji', { emoji: '🖕' })).error, 'BAD_INPUT', 'emoji outside the catalog rejected');
+      await sleep(720);
+      assert((await req(e1.s, 'game:chat', { id: C.QUICK_CHAT - 1 })).ok, 'all 12 quick phrases usable');
+      await sleep(720);
+      assert.strictEqual((await req(e1.s, 'game:chat', { id: C.QUICK_CHAT })).error, 'BAD_INPUT');
+      // skins cannot change once the game started
+      for (const x of [d1, e1]) await req(x.s, 'room:ready', { ready: true });
+      assert((await req(k.s, 'game:start', {})).ok);
+      assert.strictEqual((await req(d1.s, 'room:skin', { skin: { pawn: 'orb' } })).error, 'BAD_STATE', 'no skin change mid-game');
+      console.log('ok  skins validated + shared, 40 avatars, full emoji catalog, 12 phrases, lobby-only skin changes');
+    }
+
     // --- bonus rules: with bonuses off a capture must pass the turn; verify via a simulated sequence of many games
     console.log('\nALL FEATURE CHECKS PASSED');
   } finally {

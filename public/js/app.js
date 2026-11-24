@@ -5,8 +5,12 @@
   var $ = function (s, r) { return (r || document).querySelector(s); };
   var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
 
-  var AVATARS = ['🦁', '🐯', '🦊', '🐼', '🐸', '🐙', '🦄', '🐲', '🦅', '🐬', '🐱', '🤖'];
-  var EMOJIS = ['😂', '😎', '😡', '😱', '😭', '🤯', '👏', '🔥', '👑', '🏁', '🤡', '💀'];
+  var CAT = window.Catalog;
+  // index 11 (robot) is reserved for bots and is never offered in the picker
+  var AVATARS = ['🦁', '🐯', '🦊', '🐼', '🐸', '🐙', '🦄', '🐲', '🦅', '🐬', '🐱', '🤖',
+    '🐶', '🐺', '🦉', '🐢', '🦈', '🐒', '🦋', '🐧', '🦖', '🐘', '🦓', '🐨', '🦜', '🐝', '🦔', '🐳',
+    '🤠', '🥷', '🧙', '🧛', '🧜', '🦸', '👸', '🤴', '👾', '🦇', '🎅', '👻'];
+  function randAvatar() { var i; do { i = Math.floor(Math.random() * AVATARS.length); } while (i === CAT.BOT_AVATAR); return i; }
   var PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
   // cube orientation [rotateX, rotateY] that brings each face towards the player
   var ORI = { 1: [0, 0], 6: [0, 180], 3: [0, -90], 4: [0, 90], 2: [-90, 0], 5: [90, 0] };
@@ -18,9 +22,14 @@
   function saveSession() { try { if (S.me) sessionStorage.setItem('ludo.session', JSON.stringify(S.me)); } catch (e) { /* ignore */ } }
   function clearSession() { try { sessionStorage.removeItem('ludo.session'); } catch (e) { /* ignore */ } }
 
-  var prefs = load('ludo.prefs', { lang: 'ar', sfx: true, music: false, autoMove: true, rotate: true, gfx: 'auto' });
-  var profile = load('ludo.profile', { name: '', avatar: Math.floor(Math.random() * (AVATARS.length - 1)), color: 'red', games: 0, wins: 0 });
-  if (!(profile.avatar >= 0 && profile.avatar < AVATARS.length - 1)) profile.avatar = 0; // the robot avatar is reserved for bots
+  var prefs = load('ludo.prefs', { lang: 'ar', sfx: true, music: false, autoMove: true, rotate: true, gfx: 'auto', feed: true });
+  var profile = load('ludo.profile', { name: '', avatar: randAvatar(), color: 'red', games: 0, wins: 0 });
+  if (!(profile.avatar >= 0 && profile.avatar < AVATARS.length && profile.avatar !== CAT.BOT_AVATAR)) profile.avatar = 0;
+  profile.style = (function (st) {
+    var d = CAT.DEFAULT_STYLE, ok = function (list, v, def) { return list.indexOf(v) >= 0 ? v : def; };
+    st = st || {};
+    return { theme: ok(CAT.THEMES, st.theme, d.theme), pawn: ok(CAT.PAWNS, st.pawn, d.pawn), finish: ok(CAT.FINISHES, st.finish, d.finish), dice: ok(CAT.DICES, st.dice, d.dice) };
+  })(profile.style);
   if (L.COLORS.indexOf(profile.color) < 0) profile.color = 'red';
 
   var S = {
@@ -28,7 +37,7 @@
     board: null, lastRollId: -1, lastActionId: null, prevTurn: null, diceAnim: false, rolling: false, moving: false,
     resultShown: false, joinColor: null, joinTaken: [], joinOk: false, peekTimer: null, diceTimer: null,
     chips: null, rot: 0, spin: 0, clockOffset: 0, autoPick: null, lastTick: 0,
-    gfx: null, is3d: false, autoGfx: null, forceClassic: false, diceBuilt: false
+    gfx: null, is3d: false, autoGfx: null, forceClassic: false, diceBuilt: false, boardTheme: null
   };
 
   var socket = io({ reconnectionDelayMax: 3000 });
@@ -61,10 +70,12 @@
   function setLoader(on) { $('#loader').hidden = !on; }
 
   function show(name) {
+    if (name !== 'style') stopPreview();
     S.screen = name;
     $$('.screen').forEach(function (s) { s.classList.toggle('active', s.id === 'screen-' + name); });
     closeModals();
     $('#emoji-panel').hidden = true;
+    placeChat();
   }
   function openModal(id) { var m = $('#' + id); m.hidden = false; requestAnimationFrame(function () { m.classList.add('open'); }); }
   function closeModals() { $$('.modal').forEach(function (m) { m.classList.remove('open'); m.hidden = true; }); }
@@ -152,7 +163,7 @@
   }
   function createRoom() {
     window.Sound.click();
-    request('room:create', { name: currentName(), avatar: profile.avatar, color: profile.color }).then(function (r) {
+    request('room:create', { name: currentName(), avatar: profile.avatar, color: profile.color, skin: mySkin() }).then(function (r) {
       if (!r.ok) return toast(errText(r.error), 'bad');
       afterEnterRoom(r);
     });
@@ -161,7 +172,7 @@
     window.Sound.click();
     var code = $('#inp-code').value.trim().toUpperCase();
     if (code.length !== 5) { toast(errText('ROOM_NOT_FOUND'), 'bad'); return; }
-    request('room:join', { code: code, name: currentName(), avatar: profile.avatar, color: S.joinColor }).then(function (r) {
+    request('room:join', { code: code, name: currentName(), avatar: profile.avatar, color: S.joinColor, skin: mySkin() }).then(function (r) {
       if (!r.ok) { window.Sound.error(); if (r.error === 'COLOR_TAKEN' || r.error === 'ROOM_NOT_FOUND') peekCode(); return toast(errText(r.error), 'bad'); }
       afterEnterRoom(r);
     });
@@ -351,18 +362,18 @@
     return b;
   }
   function ensureBoard() {
-    var mode = wantGfx();
-    if (S.board && S.gfx === mode) return;
+    var mode = wantGfx(), theme = profile.style.theme;
+    if (S.board && S.gfx === mode && S.boardTheme === theme) return;
     if (S.board && S.board.dispose) S.board.dispose();
     S.board = null;
     var b = null;
     if (mode !== 'classic') {
-      try { b = new window.Board3D($('#board3d'), { quality: mode, onSlow: onSlow, onLost: onLost }); }
+      try { b = new window.Board3D($('#board3d'), { quality: mode, theme: theme, skins: S.room ? skinMap(S.room) : {}, onSlow: onSlow, onLost: onLost }); }
       catch (e) { if (window.console) console.warn('3D board unavailable, using 2D:', e && e.message); b = null; mode = 'classic'; S.forceClassic = true; }
     }
     S.is3d = !!b;
     if (!b) { mode = 'classic'; b = new window.Board($('#board')); }
-    S.gfx = mode; S.board = wireBoard(b);
+    S.gfx = mode; S.boardTheme = theme; S.board = wireBoard(b);
     $('.board-frame').classList.toggle('is3d', S.is3d);
     $('#screen-game').classList.toggle('gfx3d', S.is3d);
     // #board is an SVG element: it has no .hidden property, so use the attribute
@@ -408,7 +419,8 @@
     cube.style.transition = spin ? 'transform .95s cubic-bezier(.15,.7,.25,1)' : 'none';
     cube.style.transform = 'rotateX(' + (o[0] + 720 * S.spin) + 'deg) rotateY(' + (o[1] + 1080 * S.spin) + 'deg)';
   }
-  function setDiceFace(v) { if (S.is3d) S.board.setDiceValue(v); else orient(v, false); }
+  function rollerSkin() { var p = S.room && S.room.turn ? playerOf(S.room, S.room.turn) : null; return p && p.skin ? p.skin.dice : null; }
+  function setDiceFace(v) { if (S.is3d) S.board.setDiceValue(v, rollerSkin()); else orient(v, false); }
   function animateDice(value) {
     if (S.is3d) { // physical 3D dice: throw it on the table, it lands on the server's value
       clearTimeout(S.diceTimer);
@@ -417,7 +429,7 @@
       var done = false;
       var fin = function () { if (done) return; done = true; clearTimeout(S.diceTimer); S.diceAnim = false; renderControls(); };
       S.board.onDiceBounce = function (seg) { window.Sound.thud(seg - 1); };
-      S.board.rollDice(value, fin);
+      S.board.rollDice(value, fin, rollerSkin());
       S.diceTimer = setTimeout(fin, 5000);
       return;
     }
@@ -479,6 +491,7 @@
     var board = S.board;
     var k = rotationFor();
     if (k !== S.rot) { S.rot = k; board.setRotation(k, !isEnter); placeChips(k); }
+    if (S.is3d && board.setSkins) board.setSkins(skinMap(st));
     board.update(snapshot(st), isEnter);
     board.setTurn(st.phase === 'playing' ? st.turn : null);
     renderChips(st);
@@ -622,7 +635,7 @@
   /* ---------- private chat (room chat + whispers, free: plain Socket.IO, nothing stored on disk) ---------- */
   var CH = { list: [], unread: 0, to: null, muted: {} };
   function chatOn() { return !S.room || !S.room.settings || S.room.settings.chat !== false; }
-  function chatOpen() { return !$('#modal-chat').hidden; }
+  function chatOpen() { return isDocked() ? !$('#chat-dock').hidden : !$('#modal-chat').hidden; }
   function renderChatBadges() {
     $$('.chat-badge').forEach(function (b) { b.textContent = CH.unread > 9 ? '9+' : String(CH.unread); b.hidden = !CH.unread; });
   }
@@ -676,7 +689,7 @@
     if (!S.me) return;
     CH.unread = 0; renderChatBadges();
     $('#emoji-panel').hidden = true;
-    openModal('modal-chat');
+    if (!isDocked()) openModal('modal-chat');
     renderChat();
     if (!('ontouchstart' in window) && chatOn()) setTimeout(function () { $('#chat-input').focus(); }, 250); // no auto-keyboard on phones
   }
@@ -699,58 +712,224 @@
     if (chatOpen()) { renderChat(); return; }
     if (m._mine || muted) return;
     CH.unread++; renderChatBadges();
-    toast(m.name + (m.to ? ' (' + T('chatPrivFrom') + ')' : '') + ': ' + (m.text.length > 46 ? m.text.slice(0, 46) + '…' : m.text), 'chat');
+    if (!(prefs.feed && showFeed(m))) toast(m.name + (m.to ? ' (' + T('chatPrivFrom') + ')' : '') + ': ' + (m.text.length > 46 ? m.text.slice(0, 46) + '…' : m.text), 'chat');
     window.Sound.pop();
   }
 
   /* ---------- reactions & quick chat ---------- */
+  var EMO_TAB = 'faces';
+  function sendEmoji(e) {
+    $('#emoji-panel').hidden = true;
+    request('game:emoji', { emoji: e }, { noLoader: true }).then(function (r) { if (!r.ok && r.error !== 'RATE') toast(errText(r.error), 'bad'); });
+  }
+  function sendPhrase(id) {
+    $('#emoji-panel').hidden = true;
+    request('game:chat', { id: id }, { noLoader: true }).then(function (r) { if (!r.ok && r.error !== 'RATE') toast(errText(r.error), 'bad'); });
+  }
   function buildEmojiPanel() {
-    var p = $('#emoji-panel');
+    var p = $('#emoji-panel'), tabs = document.createElement('div'), body = document.createElement('div');
     p.innerHTML = '';
-    EMOJIS.forEach(function (e) {
+    tabs.className = 'emo-tabs';
+    var showTab = function (id) {
+      EMO_TAB = id;
+      $$('.emo-tab', tabs).forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-cat') === id); });
+      body.innerHTML = '';
+      if (id === 'phrases') {
+        body.className = 'emo-phrases';
+        for (var i = 0; i < CAT.QUICK_CHAT; i++) (function (cid) {
+          var b = document.createElement('button');
+          b.type = 'button'; b.textContent = T('chat' + cid);
+          b.addEventListener('click', function () { sendPhrase(cid); });
+          body.appendChild(b);
+        })(i);
+      } else {
+        body.className = 'emo-grid';
+        CAT.EMOJI_CATS.filter(function (c) { return c.id === id; })[0].list.forEach(function (e) {
+          var b = document.createElement('button');
+          b.type = 'button'; b.textContent = e; b.setAttribute('aria-label', e);
+          b.addEventListener('click', function () { sendEmoji(e); });
+          body.appendChild(b);
+        });
+      }
+    };
+    CAT.EMOJI_CATS.concat([{ id: 'phrases', icon: '💬' }]).forEach(function (c) {
       var b = document.createElement('button');
-      b.type = 'button'; b.textContent = e; b.setAttribute('aria-label', e);
-      b.addEventListener('click', function () {
-        p.hidden = true;
-        request('game:emoji', { emoji: e }, { noLoader: true }).then(function (r) { if (!r.ok && r.error !== 'RATE') toast(errText(r.error), 'bad'); });
-      });
-      p.appendChild(b);
+      b.type = 'button'; b.className = 'emo-tab'; b.setAttribute('data-cat', c.id); b.textContent = c.icon;
+      b.setAttribute('aria-label', c.id === 'phrases' ? T('phrasesTab') : c.id);
+      b.addEventListener('click', function () { window.Sound.click(); showTab(c.id); });
+      tabs.appendChild(b);
     });
-    var q = document.createElement('div');
-    q.className = 'quick';
-    for (var i = 0; i < 6; i++) (function (id) {
-      var b = document.createElement('button');
-      b.type = 'button'; b.textContent = T('chat' + id);
-      b.addEventListener('click', function () {
-        p.hidden = true;
-        request('game:chat', { id: id }, { noLoader: true }).then(function (r) { if (!r.ok && r.error !== 'RATE') toast(errText(r.error), 'bad'); });
-      });
-      q.appendChild(b);
-    })(i);
-    p.appendChild(q);
+    p.appendChild(tabs); p.appendChild(body);
     var co = document.createElement('button');
     co.type = 'button'; co.className = 'chat-open';
     co.innerHTML = '<svg class="ic"><use href="#i-chat"/></svg><span></span><span class="chat-badge" hidden></span>';
     co.children[1].textContent = T('chatOpen');
     co.addEventListener('click', function () { window.Sound.click(); openChat(); });
     p.appendChild(co);
+    showTab(EMO_TAB);
     renderChatBadges();
   }
-  function floatBubble(color, text, chat) {
-    var anchor = S.screen === 'game' && S.chips ? S.chips[color] : $('.slot[data-color="' + color + '"]');
-    if (!anchor) return;
+  function anchorRect(color) {
+    var a = S.screen === 'game' && S.chips ? S.chips[color] : $('.slot[data-color="' + color + '"]');
+    return a ? a.getBoundingClientRect() : null;
+  }
+  // Burst / rain effects: a shower of copies of the emoji around the sender
+  function particles(text, cx, cy, kind) {
+    var layer = $('#reaction-layer'), n = kind === 'burst' ? 10 : 12;
+    for (var i = 0; i < n; i++) {
+      var sp = document.createElement('span'), a = i * Math.PI * 2 / n + Math.random() * 0.4, dx, dy;
+      sp.className = 'fxp ' + kind; sp.textContent = text;
+      sp.style.left = cx + 'px'; sp.style.top = cy + 'px';
+      if (kind === 'burst') { var rad = 70 + Math.random() * 60; dx = Math.cos(a) * rad; dy = Math.sin(a) * rad; }
+      else { dx = (Math.random() - 0.5) * 170; dy = 120 + Math.random() * 200; }
+      sp.style.setProperty('--dx', dx + 'px'); sp.style.setProperty('--dy', dy + 'px'); sp.style.setProperty('--rot', (Math.random() * 360 - 180) + 'deg');
+      sp.style.animationDelay = (kind === 'rain' ? Math.random() * 0.5 : 0) + 's';
+      layer.appendChild(sp);
+      (function (n2) { setTimeout(function () { if (n2.parentNode) n2.parentNode.removeChild(n2); }, 2600); })(sp);
+    }
+  }
+  function floatBubble(color, text, chat, effect) {
+    var r = anchorRect(color);
+    if (!r) return;
     var layer = $('#reaction-layer');
-    while (layer.children.length >= 8) layer.removeChild(layer.firstChild);
-    var r = anchor.getBoundingClientRect(), b = document.createElement('div');
-    var isTop = r.top < window.innerHeight / 2;
+    while (layer.children.length >= 40) layer.removeChild(layer.firstChild);
+    var b = document.createElement('div'), isTop = r.top < window.innerHeight / 2;
+    var cx = Math.min(Math.max(r.left + r.width / 2, 60), window.innerWidth - 60), cy = isTop ? r.top : r.bottom;
     // float away from the board: top chips drift up, bottom chips drift down
-    b.className = 'react ' + (chat ? 'chatb ' : '') + (isTop ? 'up' : 'down');
-    b.textContent = text;
-    b.style.left = Math.min(Math.max(r.left + r.width / 2, 60), window.innerWidth - 60) + 'px';
-    b.style.top = (isTop ? r.top : r.bottom) + 'px';
+    b.className = 'react ' + (chat ? 'chatb ' : '') + (effect === 'shake' ? 'shake ' : '') + (effect === 'burst' || effect === 'rain' ? 'big ' : '') + (isTop ? 'up' : 'down');
+    if (effect === 'spin') { var em = document.createElement('span'); em.className = 'em'; em.textContent = text; b.classList.add('spin'); b.appendChild(em); }
+    else b.textContent = text;
+    b.style.left = cx + 'px'; b.style.top = cy + 'px';
     layer.appendChild(b);
+    if (effect === 'burst' || effect === 'rain') particles(text, cx, cy, effect);
     window.Sound.pop();
     setTimeout(function () { if (b.parentNode) b.parentNode.removeChild(b); }, 2300);
+  }
+
+  /* ---------- live chat on screen: feed (phones) and docked panel (wide screens) ---------- */
+  var WIDE = window.matchMedia ? window.matchMedia('(min-width: 1180px) and (min-height: 620px)') : null;
+  function isDocked() { return !!(WIDE && WIDE.matches); }
+  function placeChat() {
+    var dock = $('#chat-dock'), sheet = $('.chat-sheet'), modal = $('#modal-chat');
+    if (!dock || !sheet) return;
+    if (isDocked()) {
+      if (sheet.parentNode !== dock) dock.appendChild(sheet);
+      dock.hidden = !(S.me && (S.screen === 'game' || S.screen === 'lobby'));
+      if (!modal.hidden) { modal.classList.remove('open'); modal.hidden = true; }
+      if (!dock.hidden) renderChat();
+    } else {
+      if (sheet.parentNode !== modal) modal.appendChild(sheet);
+      dock.hidden = true;
+    }
+  }
+  function showFeed(m) {
+    if (isDocked() || chatOpen() || (S.screen !== 'game' && S.screen !== 'lobby')) return false;
+    var box = $('#chat-feed'), st = S.room, p = st ? playerOf(st, m.from) : null;
+    while (box.children.length >= 3) box.removeChild(box.firstChild);
+    var d = document.createElement('div'), av = document.createElement('span'), body = document.createElement('div'), who = document.createElement('span'), tx = document.createElement('span');
+    var life = 4 + Math.min(5, m.text.length * 0.06);
+    d.className = 'feed-item' + (m.to ? ' priv' : '');
+    d.style.setProperty('--c', PAL[m.from] ? PAL[m.from].main : '#fff'); d.style.setProperty('--life', life + 's');
+    av.className = 'avatar'; setAvatar(av, p ? p.avatar : 0, m.from);
+    body.className = 'feed-body'; who.className = 'feed-who'; tx.className = 'feed-text'; tx.setAttribute('dir', 'auto');
+    who.textContent = m.name + (m.to ? ' · ' + T('chatPrivFrom') : ''); tx.textContent = m.text;
+    body.appendChild(who); body.appendChild(tx); d.appendChild(av); d.appendChild(body);
+    d.addEventListener('click', function () { openChat(); });
+    box.appendChild(d);
+    setTimeout(function () { if (d.parentNode) d.parentNode.removeChild(d); }, life * 1000 + 600);
+    return true;
+  }
+  function buildChatEmoji() {
+    var box = $('#chat-emoji');
+    box.innerHTML = '';
+    CAT.EMOJIS.forEach(function (e) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.textContent = e; b.setAttribute('aria-label', e);
+      b.addEventListener('click', function () {
+        var inp = $('#chat-input');
+        if (inp.disabled) return;
+        inp.setRangeText(e, inp.selectionStart == null ? inp.value.length : inp.selectionStart, inp.selectionEnd == null ? inp.value.length : inp.selectionEnd, 'end');
+        inp.focus();
+      });
+      box.appendChild(b);
+    });
+  }
+
+  /* ---------- customize: board themes, pawn skins, dice skins (live 3D preview) ---------- */
+  var ST = { tab: 'board', from: 'menu', timer: null, preview: null };
+  var THEME_SW = { classic: ['#4c3fc0', '#fffaf0'], wood: ['#8b5a2b', '#f6e7c4'], neon: ['#00e5ff', '#0a0c28'], royal: ['#d4a017', '#6d1022'], ocean: ['#35d6dd', '#0e5a6b'], desert: ['#e0a458', '#8a5a2b'] };
+  var DICE_SW = { ivory: ['#ffffff', '#2a2550'], ruby: ['#c91f33', '#ffffff'], onyx: ['#17171f', '#ffd36a'], ice: ['#bfe6ff', '#2d6fa8'], neon: ['#0a0a22', '#7df9ff'], wood: ['#a66a2f', '#fff2d2'] };
+  var PAWN_GLYPH = { classic: '\u265F\uFE0E', crown: '\u265B\uFE0E', gem: '\u25C6', orb: '\u25CF', rook: '\u265C\uFE0E' };
+  var DEMO_SNAP = { red: [-1, 5, 12, 20], green: [-1, -1, 18, 30], yellow: [3, -1, 40, 26], blue: [-1, 51, 16, 33] };
+  function mySkin() { return { pawn: profile.style.pawn, finish: profile.style.finish, dice: profile.style.dice }; }
+  function skinMap(st) {
+    var m = {};
+    st.players.forEach(function (p) { if (p) m[p.color] = p.skin || CAT.DEFAULT_SKIN; });
+    return m;
+  }
+  function syncSkin() { if (S.me && S.room && S.room.phase === 'lobby') request('room:skin', { skin: mySkin() }, { noLoader: true }); }
+  function optCard(label, sw, on, fn) {
+    var b = document.createElement('button'), l = document.createElement('span');
+    b.type = 'button'; b.className = 'opt' + (on ? ' on' : '');
+    l.textContent = label; b.appendChild(sw); b.appendChild(l);
+    b.addEventListener('click', function () { window.Sound.click(); fn(); });
+    return b;
+  }
+  function mkSwatch(cls, text, vars) {
+    var s = document.createElement('span');
+    s.className = 'swatch ' + cls;
+    if (text) s.textContent = text;
+    Object.keys(vars || {}).forEach(function (k) { s.style.setProperty(k, vars[k]); });
+    return s;
+  }
+  function renderStyle() {
+    $$('#style-tabs button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-tab') === ST.tab); });
+    var box = $('#style-options'), grid, label;
+    box.innerHTML = '';
+    var group = function (title) { if (title) { label = document.createElement('div'); label.className = 'opt-group'; label.textContent = title; box.appendChild(label); } grid = document.createElement('div'); grid.className = 'opt-grid'; box.appendChild(grid); };
+    if (ST.tab === 'board') {
+      group(null);
+      CAT.THEMES.forEach(function (id) { grid.appendChild(optCard(T('t.' + id), mkSwatch('sw-theme', '', { '--a': THEME_SW[id][0], '--b': THEME_SW[id][1] }), profile.style.theme === id, function () { setStyle('theme', id); })); });
+    } else if (ST.tab === 'pawn') {
+      group(T('groupShape'));
+      CAT.PAWNS.forEach(function (id) { grid.appendChild(optCard(T('p.' + id), mkSwatch('sw-pawn', PAWN_GLYPH[id]), profile.style.pawn === id, function () { setStyle('pawn', id); })); });
+      group(T('groupFinish'));
+      CAT.FINISHES.forEach(function (id) { grid.appendChild(optCard(T('f.' + id), mkSwatch('circle fin-' + id), profile.style.finish === id, function () { setStyle('finish', id); })); });
+    } else {
+      group(null);
+      CAT.DICES.forEach(function (id) { grid.appendChild(optCard(T('d.' + id), mkSwatch('sw-dice', '\u2685', { '--b': DICE_SW[id][0], '--p': DICE_SW[id][1] }), profile.style.dice === id, function () { setStyle('dice', id); })); });
+    }
+  }
+  function setStyle(key, val) {
+    if (profile.style[key] === val) return;
+    profile.style[key] = val;
+    save('ludo.profile', profile);
+    renderStyle();
+    schedulePreview();
+    if (key !== 'theme') syncSkin();
+  }
+  function stopPreview() {
+    clearTimeout(ST.timer);
+    if (ST.preview) { ST.preview.dispose(); ST.preview = null; }
+  }
+  function startPreview() {
+    stopPreview();
+    var fb = $('#style-fallback');
+    if (!has3D() || S.screen !== 'style') { fb.hidden = has3D(); return; }
+    fb.hidden = true;
+    var g = wantGfx(), sk = { pawn: profile.style.pawn, finish: profile.style.finish };
+    try {
+      ST.preview = new window.Board3D($('#style-preview'), { quality: g === 'high' || g === 'medium' ? 'medium' : 'low', theme: profile.style.theme, skins: { red: sk, green: sk, yellow: sk, blue: sk }, diceSkin: profile.style.dice, demo: true });
+      ST.preview.update(DEMO_SNAP, true);
+      ST.preview.setTurn('red');
+      ST.preview.setDiceValue(5);
+    } catch (e) { ST.preview = null; fb.hidden = false; }
+  }
+  function schedulePreview() { clearTimeout(ST.timer); ST.timer = setTimeout(startPreview, 140); }
+  function openStyle(from) { ST.from = from; show('style'); renderStyle(); startPreview(); }
+  function closeStyle() {
+    stopPreview();
+    if (ST.from === 'lobby' && S.room && S.me && S.room.phase === 'lobby') { show('lobby'); renderLobby(); } else show('menu');
   }
 
   /* ---------- settings ---------- */
@@ -760,6 +939,7 @@
     $('#tg-music').setAttribute('aria-checked', String(prefs.music));
     $('#tg-auto').setAttribute('aria-checked', String(prefs.autoMove));
     $('#tg-rot').setAttribute('aria-checked', String(prefs.rotate));
+    $('#tg-feed').setAttribute('aria-checked', String(prefs.feed));
     $('#lang-ar').classList.toggle('on', prefs.lang === 'ar');
     $('#lang-en').classList.toggle('on', prefs.lang === 'en');
     $$('#seg-gfx button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-gfx') === (prefs.gfx || 'auto')); });
@@ -769,6 +949,7 @@
   function applyLang() {
     window.I18N.setLang(prefs.lang);
     syncSettingsUI(); renderMenuStats(); buildEmojiPanel();
+    if (S.screen === 'style') renderStyle();
     if (chatOpen()) renderChat();
     renderCreateColors(); renderJoinColors();
     if ($('#inp-code').value.trim().length === 5) peekCode();
@@ -795,7 +976,9 @@
       i.addEventListener('input', function () { profile.name = i.value.slice(0, 14); save('ludo.profile', profile); $$('#inp-name, .name-input').forEach(function (o) { if (o !== i) o.value = profile.name; }); });
     });
     var grid = $('#avatar-grid');
-    AVATARS.slice(0, AVATARS.length - 1).forEach(function (a, i) {
+    grid.classList.add('many');
+    AVATARS.forEach(function (a, i) {
+      if (i === CAT.BOT_AVATAR) return;
       var b = document.createElement('button'); b.type = 'button'; b.className = 'avatar-opt'; b.textContent = a;
       b.addEventListener('click', function () { profile.avatar = i; save('ludo.profile', profile); syncProfileUI(); window.Sound.click(); closeModals(); });
       grid.appendChild(b);
@@ -874,6 +1057,14 @@
     $('#tg-music').addEventListener('click', function () { togglePref('music', function () { window.Sound.setMusic(prefs.music); }); });
     $('#tg-auto').addEventListener('click', function () { togglePref('autoMove', function () { renderControls(); }); });
     $('#tg-rot').addEventListener('click', function () { togglePref('rotate', function () { if (S.screen === 'game' && S.room) renderGame(S.room, false); }); });
+    $('#tg-feed').addEventListener('click', function () { togglePref('feed'); });
+    $('#btn-style').addEventListener('click', function () { window.Sound.click(); openStyle('menu'); });
+    $('#btn-lobby-style').addEventListener('click', function () { window.Sound.click(); openStyle('lobby'); });
+    $('#btn-style-back').addEventListener('click', function () { window.Sound.click(); closeStyle(); });
+    $$('#style-tabs button').forEach(function (b) { b.addEventListener('click', function () { window.Sound.click(); ST.tab = b.getAttribute('data-tab'); renderStyle(); }); });
+    $('#btn-chat-g').addEventListener('click', function () { window.Sound.click(); openChat(); });
+    $('#btn-chat-emoji').addEventListener('click', function () { window.Sound.click(); var ce = $('#chat-emoji'); ce.hidden = !ce.hidden; });
+    window.addEventListener('resize', placeChat);
     $$('#seg-gfx button').forEach(function (b) {
       b.addEventListener('click', function () {
         window.Sound.click();
@@ -911,7 +1102,7 @@
     var nm = n.bot && S.room ? nameOf(S.room, playerOf(S.room, n.color)) || n.name : n.name;
     toast(T('n.' + n.key, { name: nm }), n.key === 'disc' || n.key === 'left' || n.key === 'autopilot' ? 'warn' : 'good');
   });
-  socket.on('game:emoji', function (e) { floatBubble(e.color, e.emoji, false); });
+  socket.on('game:emoji', function (e) { floatBubble(e.color, e.emoji, false, CAT.effectOf(e.emoji)); });
   socket.on('chat:msg', onChatMsg);
   socket.on('chat:history', function (list) {
     if (!S.me || !Array.isArray(list)) return;
@@ -928,6 +1119,7 @@
   window.Sound.setMusic(prefs.music);
   window.I18N.setLang(prefs.lang);
   buildEmojiPanel();
+  buildChatEmoji();
   syncProfileUI();
   renderCreateColors();
   renderJoinColors();

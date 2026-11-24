@@ -33,6 +33,7 @@
     <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
     <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16a1 1 0 011 1v10a1 1 0 01-1 1h-8l-5 4v-4H4a1 1 0 01-1-1V6a1 1 0 011-1z"/><path d="M8 10h8M8 13h5"/></symbol>
     <symbol id="i-send" viewBox="0 0 24 24"><path d="M21 3L10 14M21 3l-7 18-4-7-7-4 18-7z"/></symbol>
+    <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 100 18c1.4 0 2-1 1.6-2-.5-1.2.3-2.4 1.7-2.4H17a4 4 0 004-4c0-5-4-9.6-9-9.6z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="10.5" cy="7" r="1.2"/><circle cx="15" cy="7.5" r="1.2"/></symbol>
     <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 20a6 6 0 0112 0M16 5.2a3.2 3.2 0 010 6M18 14.5a6 6 0 013 5.5"/></symbol>
   </defs>
 </svg>
@@ -43,6 +44,7 @@
   <!-- MENU -->
   <section id="screen-menu" class="screen active">
     <div class="top-actions">
+      <button class="btn sm style-pill" id="btn-style"><svg class="ic"><use href="#i-palette"/></svg><span data-i18n="btnStyle"></span></button>
       <button class="btn icon" id="btn-help" aria-label="How to play" data-i18n-aria="help"><svg class="ic"><use href="#i-help"/></svg></button>
       <button class="btn icon" id="btn-sound" aria-label="Sound" data-i18n-aria="sound"><svg class="ic"><use href="#i-sound"/></svg></button>
       <button class="btn icon" id="btn-settings" aria-label="Settings" data-i18n-aria="settings"><svg class="ic"><use href="#i-gear"/></svg></button>
@@ -76,6 +78,22 @@
           <button class="btn secondary" id="btn-join"><svg class="ic"><use href="#i-users"/></svg><span data-i18n="join"></span></button>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- CUSTOMIZE (board themes, pawn skins, dice skins) -->
+  <section id="screen-style" class="screen">
+    <header class="bar">
+      <button class="btn icon" id="btn-style-back" aria-label="Back" data-i18n-aria="back"><svg class="ic ic-back"><use href="#i-back"/></svg></button>
+      <h2 data-i18n="styleTitle"></h2><span class="bar-sp"></span>
+    </header>
+    <div class="style-body">
+      <div class="style-preview" id="style-preview"><div class="style-fallback" id="style-fallback" hidden data-i18n="styleNo3d"></div></div>
+      <div class="seg tabs" id="style-tabs">
+        <button data-tab="board" class="on" data-i18n="tabBoard"></button><button data-tab="pawn" data-i18n="tabPawn"></button><button data-tab="dice" data-i18n="tabDice"></button>
+      </div>
+      <div class="style-options" id="style-options"></div>
+      <div class="muted small center" data-i18n="styleNote"></div>
     </div>
   </section>
 
@@ -138,6 +156,7 @@
         </div>
       </div>
       <div class="slots" id="lobby-slots"></div>
+      <button class="btn secondary sm" id="btn-lobby-style"><svg class="ic"><use href="#i-palette"/></svg><span data-i18n="lobbyStyle"></span></button>
       <button class="btn secondary sm" id="btn-addbot"><svg class="ic"><use href="#i-plus"/></svg><span data-i18n="addBot"></span></button>
       <div class="card room-rules" id="room-rules">
         <div class="set-row"><span data-i18n="timerLabel"></span>
@@ -175,12 +194,15 @@
           <div class="status" id="status" aria-live="polite"></div>
           <button class="btn primary roll" id="btn-roll"><span data-i18n="roll"></span></button>
         </div>
+        <button class="btn icon round lg chat-btn" id="btn-chat-g" aria-label="Chat" data-i18n-aria="chatTitle"><svg class="ic"><use href="#i-chat"/></svg><span class="chat-badge" hidden></span></button>
         <button class="btn icon round lg" id="btn-emoji" aria-label="Reactions" data-i18n-aria="reactions"><svg class="ic"><use href="#i-smile"/></svg><span class="chat-badge" hidden></span></button>
         <div class="emoji-panel" id="emoji-panel" hidden></div>
       </div>
     </div>
   </section>
 
+  <div id="chat-feed" aria-live="polite"></div>
+  <aside id="chat-dock" hidden></aside>
   <div id="reaction-layer" aria-hidden="true"></div>
   <div id="confetti" aria-hidden="true"></div>
   <div id="toasts" aria-live="polite"></div>
@@ -194,7 +216,8 @@
     <div class="chat-list" id="chat-list" aria-live="polite"></div>
     <div class="chat-off" id="chat-off" hidden data-i18n="chatOff"></div>
     <div class="chat-to" id="chat-to"></div>
-    <div class="chat-row"><input id="chat-input" maxlength="200" autocomplete="off" dir="auto" enterkeyhint="send" data-i18n-ph="chatPh"><button class="btn primary icon" id="btn-chat-send" aria-label="Send" data-i18n-aria="chatSend"><svg class="ic"><use href="#i-send"/></svg></button></div>
+    <div class="chat-emoji" id="chat-emoji" hidden></div>
+    <div class="chat-row"><button class="btn secondary icon" id="btn-chat-emoji" aria-label="Emoji"><svg class="ic"><use href="#i-smile"/></svg></button><input id="chat-input" maxlength="200" autocomplete="off" dir="auto" enterkeyhint="send" data-i18n-ph="chatPh"><button class="btn primary icon" id="btn-chat-send" aria-label="Send" data-i18n-aria="chatSend"><svg class="ic"><use href="#i-send"/></svg></button></div>
   </div></div>
 
   <div class="modal" id="modal-avatar" hidden><div class="sheet">
@@ -211,6 +234,7 @@
       <div class="seg small wrap" id="seg-gfx"><button data-gfx="auto" data-i18n="gfxAuto"></button><button data-gfx="high" data-i18n="gfxHigh"></button><button data-gfx="medium" data-i18n="gfxMed"></button><button data-gfx="low" data-i18n="gfxLow"></button><button data-gfx="classic" data-i18n="gfx2d"></button></div>
       <div class="muted small" id="gfx-note"></div></div>
     <div class="set-row"><span><b data-i18n="autoMove"></b></span><button class="switch" id="tg-auto" role="switch" aria-checked="true"><i></i></button></div>
+    <div class="set-row"><span><b data-i18n="chatFeedToggle"></b></span><button class="switch" id="tg-feed" role="switch" aria-checked="true"><i></i></button></div>
     <div class="set-row"><span><b data-i18n="rotateBoard"></b></span><button class="switch" id="tg-rot" role="switch" aria-checked="true"><i></i></button></div>
     <button class="btn secondary" data-close data-i18n="close"></button></div></div>
 
@@ -233,6 +257,7 @@
 <script src="/socket.io/socket.io.js"></script>
 <script src="/vendor/three.min.js"></script>
 <script src="/shared/ludo.js"></script>
+<script src="/shared/catalog.js"></script>
 <script src="/js/i18n.js"></script>
 <script src="/js/sound.js"></script>
 <script src="/js/board.js"></script>

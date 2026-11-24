@@ -105,23 +105,34 @@
   }
 
   /* ----- procedural textures ----- */
-  function paperTexture() {
+  function paperTexture(cols) {
     return canvasTex(512, 512, function (g, w, h) {
-      var gr = g.createLinearGradient(0, 0, w, h); gr.addColorStop(0, '#fffaf0'); gr.addColorStop(1, '#f0e2c0');
+      var gr = g.createLinearGradient(0, 0, w, h); gr.addColorStop(0, cols[0]); gr.addColorStop(1, cols[1]);
       g.fillStyle = gr; g.fillRect(0, 0, w, h);
       for (var i = 0; i < 2600; i++) { g.fillStyle = 'rgba(120,90,30,' + (Math.random() * 0.05) + ')'; g.fillRect(Math.random() * w, Math.random() * h, 1.5, 1.5); }
     });
   }
-  function tableTexture() {
+  function tableTexture(cfg) {
+    var rep = cfg.pat === 'wood' ? 2 : 9;
     return canvasTex(512, 512, function (g, w, h) {
-      g.fillStyle = '#1a1548'; g.fillRect(0, 0, w, h);
-      for (var i = 0; i < 9000; i++) { g.fillStyle = 'rgba(' + (Math.random() < 0.5 ? '255,255,255' : '0,0,20') + ',' + (Math.random() * 0.06) + ')'; g.fillRect(Math.random() * w, Math.random() * h, 1.5, 1.5); }
-    }, 9);
+      g.fillStyle = cfg.c; g.fillRect(0, 0, w, h);
+      var i;
+      if (cfg.pat === 'wood') {
+        for (i = 0; i < 70; i++) { g.fillStyle = 'rgba(' + (Math.random() < 0.5 ? '255,220,170' : '30,12,0') + ',' + (0.04 + Math.random() * 0.1) + ')'; g.fillRect(0, Math.random() * h, w, 1 + Math.random() * 4); }
+        for (i = 0; i < 6; i++) { g.fillStyle = 'rgba(0,0,0,.28)'; g.fillRect(0, i * (h / 6), w, 2); }
+      } else if (cfg.pat === 'grid') {
+        g.strokeStyle = 'rgba(0,229,255,.22)'; g.lineWidth = 1.5;
+        for (i = 0; i <= 8; i++) { g.beginPath(); g.moveTo(i * w / 8, 0); g.lineTo(i * w / 8, h); g.stroke(); g.beginPath(); g.moveTo(0, i * h / 8); g.lineTo(w, i * h / 8); g.stroke(); }
+      } else {
+        var n = cfg.pat === 'sand' ? 14000 : 9000;
+        for (i = 0; i < n; i++) { g.fillStyle = 'rgba(' + (Math.random() < 0.5 ? '255,255,255' : '0,0,20') + ',' + (Math.random() * 0.06) + ')'; g.fillRect(Math.random() * w, Math.random() * h, 1.5, 1.5); }
+      }
+    }, rep);
   }
-  function backgroundTexture() {
+  function backgroundTexture(cols) {
     return canvasTex(256, 256, function (g, w, h) {
       var gr = g.createRadialGradient(w / 2, h * 0.45, 10, w / 2, h / 2, w * 0.75);
-      gr.addColorStop(0, '#34298f'); gr.addColorStop(0.6, '#1c1655'); gr.addColorStop(1, '#0d0a2a');
+      gr.addColorStop(0, cols[0]); gr.addColorStop(0.6, cols[1]); gr.addColorStop(1, cols[2]);
       g.fillStyle = gr; g.fillRect(0, 0, w, h);
     });
   }
@@ -132,18 +143,41 @@
       g.fillStyle = gr; g.fillRect(0, 0, w, h);
     });
   }
-  function pipTexture(v) {
+  function pipTexture(v, sk, glowOnly) {
     return canvasTex(256, 256, function (g, w, h) {
-      var gr = g.createLinearGradient(0, 0, w, h); gr.addColorStop(0, '#ffffff'); gr.addColorStop(1, '#e9e3d6');
-      g.fillStyle = gr; g.fillRect(0, 0, w, h);
+      if (glowOnly) { g.fillStyle = '#000'; g.fillRect(0, 0, w, h); }
+      else {
+        var gr = g.createLinearGradient(0, 0, w, h); gr.addColorStop(0, sk.bg[0]); gr.addColorStop(1, sk.bg[1]);
+        g.fillStyle = gr; g.fillRect(0, 0, w, h);
+        if (sk.grain) for (var i = 0; i < 40; i++) { g.fillStyle = 'rgba(40,18,0,' + (0.05 + Math.random() * 0.12) + ')'; g.fillRect(0, Math.random() * h, w, 1 + Math.random() * 3); }
+      }
       PIPS[v].forEach(function (idx) {
         var cx = (idx % 3 + 0.5) * w / 3, cy = (Math.floor(idx / 3) + 0.5) * h / 3, r = v === 1 ? 44 : 27;
+        var cs = v === 1 ? sk.one : sk.pip;
         var p = g.createRadialGradient(cx - r * 0.3, cy - r * 0.35, 1, cx, cy, r);
-        if (v === 1) { p.addColorStop(0, '#ff7b86'); p.addColorStop(1, '#c8102e'); } else { p.addColorStop(0, '#4a4478'); p.addColorStop(1, '#14102f'); }
+        p.addColorStop(0, cs[0]); p.addColorStop(1, cs[1]);
         g.fillStyle = p; g.beginPath(); g.arc(cx, cy, r, 0, TAU); g.fill();
       });
     });
   }
+
+  var THEME = {
+    classic: { bg: ['#34298f', '#1c1655', '#0d0a2a'], table: { c: '#1a1548', tint: 0x9f9bc8, pat: 'felt' }, frame: { color: 0x2b2380, metal: 0.25, rough: 0.3 }, rim: { color: 0x4c3fc0, metal: 0.35, rough: 0.28 }, paper: ['#fffaf0', '#f0e2c0'], tile: 0xfff6e2, well: 0xfff8ea },
+    wood: { bg: ['#7a5232', '#3d2615', '#1a0e07'], table: { c: '#4a2e18', tint: 0xd8b894, pat: 'wood' }, frame: { color: 0x5e3718, metal: 0, rough: 0.55, clear: 0.4 }, rim: { color: 0x8b5a2b, metal: 0, rough: 0.5, clear: 0.4 }, paper: ['#f6e7c4', '#dcc08a'], tile: 0xf8ebcd, well: 0xf6e7c4 },
+    neon: { bg: ['#0c1d44', '#050a1f', '#02030c'], table: { c: '#04050f', tint: 0xffffff, pat: 'grid' }, frame: { color: 0x0a0b1e, metal: 0.6, rough: 0.25 }, rim: { color: 0x00e5ff, metal: 0.2, rough: 0.3, emissive: 0x00a8c4, ei: 0.95 }, paper: ['#101436', '#0a0c28'], tile: 0x1c2158, tileEm: 0x2430a8, tileEmI: 0.55, well: 0x121642 },
+    royal: { bg: ['#6a1a2c', '#2e0b16', '#10040a'], table: { c: '#2a0a12', tint: 0xd9a0a8, pat: 'felt' }, frame: { color: 0x6d1022, metal: 0.3, rough: 0.35 }, rim: { color: 0xd4a017, metal: 0.9, rough: 0.25 }, paper: ['#fdf3dc', '#e8cf9b'], tile: 0xfff1cf, well: 0xfff4d8 },
+    ocean: { bg: ['#1b8a9a', '#0c4756', '#04202a'], table: { c: '#06323d', tint: 0xa9e3ea, pat: 'felt' }, frame: { color: 0x0e5a6b, metal: 0.3, rough: 0.25 }, rim: { color: 0x35d6dd, metal: 0.4, rough: 0.2 }, paper: ['#ecfdff', '#c9eef2'], tile: 0xf5feff, well: 0xf2feff },
+    desert: { bg: ['#c07a33', '#6e3d17', '#2d1707'], table: { c: '#5d3b1e', tint: 0xe6c9a0, pat: 'sand' }, frame: { color: 0x8a5a2b, metal: 0.1, rough: 0.5 }, rim: { color: 0xe0a458, metal: 0.7, rough: 0.3 }, paper: ['#f6e3b8', '#e5c88a'], tile: 0xfcf0d2, well: 0xfbefcf }
+  };
+  var DICE_SKIN = {
+    ivory: { bg: ['#ffffff', '#e9e3d6'], pip: ['#4a4478', '#14102f'], one: ['#ff7b86', '#c8102e'], rough: 0.32, clear: 0.7, metal: 0 },
+    ruby: { bg: ['#ef4b5d', '#9b1423'], pip: ['#ffffff', '#e8e8ee'], one: ['#ffe08a', '#e0a800'], rough: 0.28, clear: 0.9, metal: 0 },
+    onyx: { bg: ['#3a3a46', '#0c0c12'], pip: ['#ffe9a6', '#e0a800'], one: ['#ffe9a6', '#e0a800'], rough: 0.25, clear: 0.9, metal: 0.3 },
+    ice: { bg: ['#eaf8ff', '#a9d9f4'], pip: ['#3b82c4', '#12426e'], one: ['#ff8ea0', '#d6264a'], rough: 0.1, clear: 1, metal: 0, alpha: 0.82 },
+    neon: { bg: ['#0a0a22', '#04040f'], pip: ['#7df9ff', '#00c8e0'], one: ['#ff6bf0', '#d000c0'], rough: 0.35, clear: 0.4, metal: 0, glow: true },
+    wood: { bg: ['#b8793a', '#7a4a1c'], pip: ['#fff2d2', '#e8cf9b'], one: ['#ffd27a', '#e09a1a'], rough: 0.6, clear: 0, metal: 0, grain: true }
+  };
+  function mixHex(a, b, t) { return new THREE.Color(a).lerp(new THREE.Color(b), t).getHex(); }
 
   function studioEnv(renderer) {
     var s = new THREE.Scene();
@@ -169,6 +203,12 @@
     opts = opts || {};
     this.host = host;
     this.qName = Q[opts.quality] ? opts.quality : 'medium';
+    this.theme = THEME[opts.theme] ? opts.theme : 'classic';
+    this.themeDef = THEME[this.theme];
+    this.skins = opts.skins || {};
+    this.diceSkinName = DICE_SKIN[opts.diceSkin] ? opts.diceSkin : 'ivory';
+    this.demo = !!opts.demo; this.nextDemoRoll = 2.5;
+    this.partsCache = {}; this.pm = {}; this.dm = {};
     this.q = Q[this.qName];
     this.onSlow = opts.onSlow || null;
     this.onLost = opts.onLost || null;
@@ -196,6 +236,7 @@
     return ok;
   };
   Board3D.PAL = PAL;
+  Board3D.THEME_IDS = Object.keys(THEME); Board3D.DICE_IDS = Object.keys(DICE_SKIN);
   Board3D.FACE_VAL = FACE_VAL; Board3D.FACE_NORMAL = FACE_NORMAL; Board3D.ELEV = ELEV;
 
   Board3D.prototype.init = function () {
@@ -208,7 +249,7 @@
     this.canvas.addEventListener('webglcontextlost', this.onCtxLost);
 
     var scene = this.scene = new THREE.Scene();
-    scene.background = backgroundTexture();
+    scene.background = backgroundTexture(this.themeDef.bg);
     this.camera = new THREE.PerspectiveCamera(FOV, 1, 0.5, 200);
     if (q.env) scene.environment = studioEnv(r);
 
@@ -279,29 +320,30 @@
   };
 
   Board3D.prototype.buildTable = function () {
+    var T = this.themeDef;
     var g = new THREE.CircleGeometry(40, 64);
     g.rotateX(-Math.PI / 2);
-    var m = new THREE.Mesh(g, this.mat(0x9f9bc8, { roughness: 0.92, map: tableTexture() }));
+    var m = new THREE.Mesh(g, this.mat(T.table.tint, { roughness: T.table.pat === 'wood' ? 0.6 : 0.92, map: tableTexture(T.table) }));
     m.position.y = TABLE_Y;
     m.receiveShadow = !!this.q.shadow;
     this.scene.add(m);
   };
 
   Board3D.prototype.buildBoard = function () {
-    var q = this.q, self = this;
+    var q = this.q, self = this, T = this.themeDef;
     var board = this.board = new THREE.Group();
     this.scene.add(board);
 
     // frame: floor slab + raised rim
-    var floor = this.add(slab(roundedRect(16.2, 16.2, 1.1), 0.5, 0.06, q), this.mat(0x2b2380, { roughness: 0.3, metalness: 0.25, clearcoat: 1 }), 0, TABLE_Y + 0.02 - 0.0, 0);
+    var floor = this.add(slab(roundedRect(16.2, 16.2, 1.1), 0.5, 0.06, q), this.mat(T.frame.color, { roughness: T.frame.rough, metalness: q.env ? T.frame.metal : 0, clearcoat: T.frame.clear == null ? 1 : T.frame.clear }), 0, TABLE_Y + 0.02 - 0.0, 0);
     floor.position.y = TABLE_Y + 0.0;
     var rimShape = roundedRect(16.2, 16.2, 1.1);
     rimShape.holes.push(new THREE.Path(roundedRect(15, 15, 0.35).getPoints(q.curve * 2)));
     var rim = slab(rimShape, 0.1, 0.05, q);
-    this.add(rim, this.mat(0x4c3fc0, { roughness: 0.28, metalness: 0.35, clearcoat: 1 }), 0, 0.0, 0);
+    this.add(rim, this.mat(T.rim.color, { roughness: T.rim.rough, metalness: q.env ? T.rim.metal : 0, clearcoat: T.rim.clear == null ? 1 : T.rim.clear, emissive: T.rim.emissive, emissiveIntensity: T.rim.ei }), 0, 0.0, 0);
     // paper surface
     var pg = slab(roundedRect(15, 15, 0.35), 0.01, 0.005, q);
-    var paperMat = this.mat(0xffffff, { roughness: 0.8, map: paperTexture() });
+    var paperMat = this.mat(0xffffff, { roughness: 0.8, map: paperTexture(T.paper) });
     paperMat.map.wrapS = paperMat.map.wrapT = THREE.RepeatWrapping; paperMat.map.repeat.set(3, 3);
     var paper = this.add(pg, paperMat, 0, -0.01, 0, false);
     paper.castShadow = false;
@@ -312,7 +354,7 @@
       var plateMat = self.mat(p.main, { roughness: 0.34, clearcoat: 0.8, emissive: p.main, emissiveIntensity: 0 });
       self.basePlates[c] = plateMat;
       self.add(slab(roundedRect(6, 6, 0.55), 0.12, 0.05, q), plateMat, cx, 0, cz);
-      self.add(slab(roundedRect(4.7, 4.7, 0.7), 0.01, 0.015, q), self.mat(0xfff8ea, { roughness: 0.6 }), cx, 0.2, cz, false);
+      self.add(slab(roundedRect(4.7, 4.7, 0.7), 0.01, 0.015, q), self.mat(T.well, { roughness: 0.6 }), cx, 0.2, cz, false);
       L.BASE_SPOTS.forEach(function (s) {
         var sx = wx(o[0] + s[0]), sz = wz(o[1] + s[1]);
         var disc = new THREE.CylinderGeometry(0.74, 0.74, 0.03, q.seg);
@@ -326,7 +368,7 @@
     // track + lane tiles (instanced rounded tiles)
     var tileGeo = slab(roundedRect(0.9, 0.9, 0.16), 0.08, 0.03, q);
     var total = 52 + 20;
-    var inst = new THREE.InstancedMesh(tileGeo, this.mat(0xffffff, { roughness: 0.55, env: 0.22 }), total);
+    var inst = new THREE.InstancedMesh(tileGeo, this.mat(0xffffff, { roughness: 0.55, env: 0.22, emissive: T.tileEm, emissiveIntensity: T.tileEmI }), total);
     if (q.shadow) { inst.castShadow = true; inst.receiveShadow = true; }
     var mtx = new THREE.Matrix4(), color = new THREE.Color(), n = 0;
     var startOf = {};
@@ -334,7 +376,7 @@
     L.TRACK.forEach(function (cell, i) {
       mtx.makeTranslation(wx(cell[0] + 0.5), 0, wz(cell[1] + 0.5));
       inst.setMatrixAt(n, mtx);
-      inst.setColorAt(n, color.copy(col(startOf[i] ? PAL[startOf[i]].main : 0xfff6e2)));
+      inst.setColorAt(n, color.copy(col(startOf[i] ? PAL[startOf[i]].main : T.tile)));
       n++;
     });
     L.COLORS.forEach(function (c) {
@@ -390,18 +432,11 @@
 
   Board3D.prototype.buildPawnAssets = function () {
     var q = this.q, self = this;
-    this.pawnBody = new THREE.LatheGeometry(pawnProfile(q.seg), q.seg);
-    this.pawnBody.scale(1.5, 1.5, 1.5);
-    this.pawnHead = new THREE.SphereGeometry(0.31, q.seg, Math.round(q.seg / 2));
     this.ringGeo = new THREE.RingGeometry(0.62, 0.8, 40); this.ringGeo.rotateX(-Math.PI / 2);
     this.hitGeo = new THREE.CylinderGeometry(0.85, 0.85, 1.9, 10);
     this.discGeo = new THREE.CircleGeometry(0.46, 32); this.discGeo.rotateX(-Math.PI / 2);
     this.arrowGeo = new THREE.ConeGeometry(0.2, 0.46, 14); this.arrowGeo.rotateX(Math.PI);
     this.blobGeo = new THREE.CircleGeometry(0.5, 20); this.blobGeo.rotateX(-Math.PI / 2);
-    this.pawnMats = {};
-    L.COLORS.forEach(function (c) {
-      self.pawnMats[c] = self.mat(PAL[c].main, { roughness: 0.22, clearcoat: 1, emissive: PAL[c].main, emissiveIntensity: 0.07 });
-    });
     this.ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
     this.blobMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.32, depthWrite: false });
     this.hitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
@@ -410,12 +445,78 @@
       self.ghostMats[c] = new THREE.MeshBasicMaterial({ color: PAL[c].main, transparent: true, opacity: 0.42, depthWrite: false });
     });
     this.arrowMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    void q;
   };
 
+  function lathe(pts, seg) { return new THREE.LatheGeometry(pts.map(function (p) { return new THREE.Vector2(p[0], p[1]); }), seg); }
+  // Pawn shapes: lists of {geo, x, y, z, flat?}; the origin is the centre of the pawn's base.
+  Board3D.prototype.pawnParts = function (shape) {
+    if (this.partsCache[shape]) return this.partsCache[shape];
+    var q = this.q, seg = q.seg, parts = [], k;
+    var ring = function (n, radius, fn) { for (var i = 0; i < n; i++) { var a = i * TAU / n; fn(Math.cos(a) * radius, Math.sin(a) * radius, a); } };
+    if (shape === 'crown') {
+      parts.push({ geo: lathe([[0, 0], [0.5, 0], [0.52, 0.08], [0.5, 0.16], [0.38, 0.26], [0.3, 0.52], [0.28, 0.78], [0.44, 0.92], [0.46, 1.0], [0, 1.0]], seg), x: 0, y: 0, z: 0 });
+      var spike = new THREE.ConeGeometry(0.11, 0.42, 12), tip = new THREE.SphereGeometry(0.075, 12, 8);
+      ring(5, 0.34, function (x, z) { parts.push({ geo: spike, x: x, y: 1.21, z: z }); parts.push({ geo: tip, x: x, y: 1.44, z: z }); });
+      parts.push({ geo: new THREE.SphereGeometry(0.13, 16, 12), x: 0, y: 1.02, z: 0 });
+    } else if (shape === 'gem') {
+      parts.push({ geo: lathe([[0, 0], [0.46, 0], [0.48, 0.06], [0.44, 0.14], [0.2, 0.2], [0.16, 0.32], [0, 0.32]], seg), x: 0, y: 0, z: 0 });
+      var gem = new THREE.OctahedronGeometry(0.62, 0); gem.scale(0.78, 1.2, 0.78); gem.rotateY(Math.PI / 4);
+      parts.push({ geo: gem, x: 0, y: 1.1, z: 0, flat: true });
+    } else if (shape === 'orb') {
+      parts.push({ geo: lathe([[0, 0], [0.46, 0], [0.48, 0.07], [0.4, 0.15], [0.2, 0.24], [0.14, 0.4], [0.2, 0.46], [0, 0.46]], seg), x: 0, y: 0, z: 0 });
+      parts.push({ geo: new THREE.SphereGeometry(0.5, seg, Math.round(seg / 2)), x: 0, y: 0.98, z: 0 });
+    } else if (shape === 'rook') {
+      parts.push({ geo: lathe([[0, 0], [0.5, 0], [0.5, 0.1], [0.38, 0.22], [0.35, 0.9], [0.47, 0.98], [0.47, 1.14], [0, 1.14]], seg), x: 0, y: 0, z: 0 });
+      var mer = new THREE.BoxGeometry(0.22, 0.28, 0.22);
+      ring(4, 0.33, function (x, z) { parts.push({ geo: mer, x: x, y: 1.28, z: z }); });
+    } else { // classic
+      var body = new THREE.LatheGeometry(pawnProfile(seg), seg); body.scale(1.5, 1.5, 1.5);
+      parts.push({ geo: body, x: 0, y: 0, z: 0 });
+      parts.push({ geo: new THREE.SphereGeometry(0.31, seg, Math.round(seg / 2)), x: 0, y: 1.29, z: 0 });
+    }
+    void k;
+    this.partsCache[shape] = parts;
+    return parts;
+  };
+
+  // Pawn materials: the team colour always stays recognisable, whatever the finish.
+  Board3D.prototype.pawnMat = function (c, finish, flat) {
+    var key = c + '|' + finish + '|' + (flat ? 1 : 0);
+    if (this.pm[key]) return this.pm[key];
+    var p = PAL[c], f = finish, m;
+    if (!this.q.env && (f === 'gold' || f === 'chrome')) f = 'glossy'; // metals need reflections
+    if (f === 'matte') m = this.mat(p.main, { roughness: 0.88 });
+    else if (f === 'gold') m = this.mat(mixHex(p.main, 0xf4c542, 0.55), { roughness: 0.2, metalness: 0.95, env: 1.2 });
+    else if (f === 'chrome') m = this.mat(mixHex(p.main, 0xffffff, 0.6), { roughness: 0.07, metalness: 1, env: 1.3 });
+    else if (f === 'glass') { m = this.mat(p.main, { roughness: 0.05, metalness: 0.1, clearcoat: 1, env: 1.1 }); m.transparent = true; m.opacity = 0.7; }
+    else if (f === 'neon') m = this.mat(p.main, { roughness: 0.4, emissive: p.main, emissiveIntensity: 0.9 });
+    else m = this.mat(p.main, { roughness: 0.22, clearcoat: 1, emissive: p.main, emissiveIntensity: 0.07 });
+    if (flat) m.flatShading = true;
+    this.pm[key] = m;
+    return m;
+  };
+
+  Board3D.prototype.getDiceMats = function (skin) {
+    skin = DICE_SKIN[skin] ? skin : 'ivory';
+    if (this.dm[skin]) return this.dm[skin];
+    var sk = DICE_SKIN[skin], self = this;
+    this.dm[skin] = FACE_VAL.map(function (v) {
+      var m = self.mat(0xffffff, { roughness: sk.rough, metalness: self.q.env ? sk.metal : 0, clearcoat: sk.clear, map: pipTexture(v, sk, false) });
+      if (sk.alpha) { m.transparent = true; m.opacity = sk.alpha; }
+      if (sk.glow) { m.emissive = new THREE.Color(0xffffff); m.emissiveMap = pipTexture(v, sk, true); m.emissiveIntensity = 1.15; }
+      return m;
+    });
+    return this.dm[skin];
+  };
+  Board3D.prototype.setDiceSkin = function (skin) {
+    if (!skin || skin === this.diceSkinName || !DICE_SKIN[skin]) return;
+    this.diceSkinName = skin;
+    this.diceMesh.material = this.getDiceMats(skin);
+  };
   Board3D.prototype.buildDice = function () {
-    var q = this.q, self = this;
-    var mats = FACE_VAL.map(function (v) { return self.mat(0xffffff, { roughness: 0.32, clearcoat: 0.7, map: pipTexture(v) }); });
-    var mesh = this.diceMesh = new THREE.Mesh(roundedBox(1, 0.11, q.dice), mats);
+    var q = this.q;
+    var mesh = this.diceMesh = new THREE.Mesh(roundedBox(1, 0.11, q.dice), this.getDiceMats(this.diceSkinName));
     mesh.scale.setScalar(DICE);
     if (q.shadow) { mesh.castShadow = true; mesh.receiveShadow = true; }
     this.scene.add(mesh);
@@ -519,19 +620,20 @@
 
   /* ---------- pawns ---------- */
   Board3D.prototype.makePawn = function (c, i, pos) {
-    var g = new THREE.Group(), inner = new THREE.Group(), q = this.q;
-    var body = new THREE.Mesh(this.pawnBody, this.pawnMats[c]);
-    var head = new THREE.Mesh(this.pawnHead, this.pawnMats[c]);
-    head.position.y = 1.29;
-    if (q.shadow) { body.castShadow = head.castShadow = true; body.receiveShadow = head.receiveShadow = true; }
-    inner.add(body); inner.add(head);
+    var g = new THREE.Group(), inner = new THREE.Group(), q = this.q, self = this;
+    var sk = this.skins[c] || { pawn: 'classic', finish: 'glossy' };
+    this.pawnParts(sk.pawn).forEach(function (pt) {
+      var mesh = new THREE.Mesh(pt.geo, self.pawnMat(c, sk.finish, pt.flat));
+      mesh.position.set(pt.x, pt.y, pt.z);
+      if (q.shadow) { mesh.castShadow = true; mesh.receiveShadow = true; }
+      inner.add(mesh);
+    });
     g.add(inner);
     var ring = new THREE.Mesh(this.ringGeo, this.ringMat); ring.position.y = 0.03; ring.visible = false; g.add(ring);
     var hit = new THREE.Mesh(this.hitGeo, this.hitMat); hit.position.y = 0.95; hit.userData.pick = { c: c, i: i }; g.add(hit);
     if (!q.shadow) { var blob = new THREE.Mesh(this.blobGeo, this.blobMat); blob.position.y = 0.02; g.add(blob); }
     this.scene.add(g);
-    var t = { g: g, inner: inner, ring: ring, hit: hit, c: c, i: i, pos: pos, legal: false, tween: null, target: { x: 0, y: 0, z: 0, s: 1 } };
-    return t;
+    return { g: g, inner: inner, ring: ring, hit: hit, c: c, i: i, pos: pos, legal: false, tween: null, target: { x: 0, y: 0, z: 0, s: 1 } };
   };
 
   Board3D.prototype.build = function (snap) {
@@ -688,6 +790,7 @@
     });
   };
   Board3D.prototype.setTurn = function (color) { this.turnColor = color; };
+  Board3D.prototype.setSkins = function (map) { this.skins = map || {}; };
   Board3D.prototype.celebrate = function (color) { this.celebrateColor = color; this.celebrateUntil = this.t + 6; };
 
   /* ---------- dice ---------- */
@@ -707,7 +810,8 @@
     var qy = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yawExtra);
     return qy.multiply(q);
   };
-  Board3D.prototype.setDiceValue = function (v) {
+  Board3D.prototype.setDiceValue = function (v, skin) {
+    if (skin) this.setDiceSkin(skin);
     this.diceValue = v;
     this.diceQuat.copy(this.quatForValue(v, 0.35));
     this.diceMesh.quaternion.copy(this.diceQuat);
@@ -715,7 +819,8 @@
   };
   Board3D.prototype.setDiceActive = function (hex) { this.diceActive = hex == null ? null : hex; };
   // Throws the dice; it bounces on the table and lands showing `value`. Resolves when it has settled.
-  Board3D.prototype.rollDice = function (value, cb) {
+  Board3D.prototype.rollDice = function (value, cb, skin) {
+    if (skin) this.setDiceSkin(skin);
     var self = this, from = this.diceMesh.position.clone(), z = this.zoneWorld(this.yaw);
     var s = Math.sin(this.yaw), c = Math.cos(this.yaw), jx = (Math.random() - 0.5) * 1.6, jz = (Math.random() - 0.5) * 0.7;
     var to = new THREE.Vector3(z.x + jx * c + jz * s, this.restY(), z.z - jx * s + jz * c);
@@ -782,6 +887,10 @@
 
   Board3D.prototype.step = function (dt) {
     var self = this, t = this.t;
+    if (this.demo) { // preview mode: slow turntable and an occasional dice throw
+      this.yawTarget += dt * 0.22; this.yaw = this.yawTarget;
+      if (!this.diceAnim && t > this.nextDemoRoll) { this.nextDemoRoll = t + 4.2; this.rollDice(1 + Math.floor(Math.random() * 6)); }
+    }
     // camera orbit towards the target yaw
     this.yaw += (this.yawTarget - this.yaw) * Math.min(1, dt * 5.5);
     if (Math.abs(this.yawTarget - this.yaw) < 0.0005) this.yaw = this.yawTarget;

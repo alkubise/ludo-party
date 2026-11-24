@@ -10,6 +10,7 @@ const crypto = require('crypto');
 const express = require('express');
 const { Server } = require('socket.io');
 const L = require('./shared/ludo');
+const C = require('./shared/catalog');
 
 const PORT = process.env.PORT || 3000;
 const FAST = process.env.LUDO_FAST === '1'; // shortens delays (used by tests only)
@@ -25,10 +26,10 @@ const T = {
 const TIMERS = [0, 15, 30, 45];
 const DEFAULT_TIMER = FAST ? 0 : 30;
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const EMOJIS = ['😂', '😎', '😡', '😱', '😭', '🤯', '👏', '🔥', '👑', '🏁', '🤡', '💀'];
-const QUICK_CHAT = 6;
+const EMOJIS = C.EMOJIS;
+const QUICK_CHAT = C.QUICK_CHAT;
 const CHAT_MAX = 200, CHAT_KEEP = 60;
-const AVATARS = 12;
+const AVATARS = C.AVATAR_COUNT;
 
 const rooms = new Map();
 const app = express();
@@ -67,7 +68,9 @@ function readProfile(d) {
   const avatar = d.avatar == null ? 0 : d.avatar;
   if (!Number.isInteger(avatar) || avatar < 0 || avatar >= AVATARS) return null;
   if (d.color != null && !L.COLORS.includes(d.color)) return null;
-  return { name: clean(d.name, 14), avatar, color: d.color || null };
+  const skin = C.cleanSkin(d.skin);
+  if (!skin) return null;
+  return { name: clean(d.name, 14), avatar, color: d.color || null, skin };
 }
 
 function publicState(r) {
@@ -79,7 +82,7 @@ function publicState(r) {
       const p = r.players[c];
       if (!p) return null;
       return {
-        color: c, name: p.name, avatar: p.avatar, bot: !!p.bot, auto: !!p.auto,
+        color: c, name: p.name, avatar: p.avatar, skin: p.skin, bot: !!p.bot, auto: !!p.auto,
         connected: p.bot ? true : p.connected, left: !!p.left,
         ready: c === r.host || p.ready, tokens: p.tokens,
         done: p.tokens.filter((x) => x === L.FINISH).length, stats: p.stats
@@ -116,16 +119,16 @@ function newRoom() {
   };
 }
 
-function mkPlayer(color, name, avatar, sid, bot) {
+function mkPlayer(color, name, avatar, sid, bot, skin) {
   return {
-    pid: crypto.randomBytes(12).toString('hex'), sid, color, name: name || 'Player', avatar,
+    pid: crypto.randomBytes(12).toString('hex'), sid, color, name: name || 'Player', avatar, skin: skin || C.cleanSkin(null),
     ready: !!bot, connected: true, bot: !!bot, auto: false, strikes: 0,
     tokens: [-1, -1, -1, -1], left: false, dropTimer: null, lastEmoji: 0, stats: newStats()
   };
 }
 
 function addPlayer(r, socket, prof, color) {
-  const p = mkPlayer(color, prof.name, prof.avatar, socket.id, false);
+  const p = mkPlayer(color, prof.name, prof.avatar, socket.id, false, prof.skin);
   r.players[color] = p;
   socket.data.code = r.code;
   socket.data.color = color;
@@ -440,6 +443,19 @@ io.on('connection', (socket) => {
     broadcast(c.r);
   });
 
+  // Pawn / finish / dice skins are visible to the whole room, so they can only change in the lobby.
+  socket.on('room:skin', (d, cb) => {
+    cb = ack(cb);
+    const c = ctxOf(socket);
+    if (!c) return cb({ ok: false, error: 'NOT_IN_ROOM' });
+    if (c.r.phase !== 'lobby') return cb({ ok: false, error: 'BAD_STATE' });
+    const skin = C.cleanSkin(d && d.skin);
+    if (!skin) return cb({ ok: false, error: 'BAD_INPUT' });
+    c.p.skin = skin;
+    cb({ ok: true });
+    broadcast(c.r);
+  });
+
   socket.on('room:settings', (d, cb) => {
     cb = ack(cb);
     const c = hostCtx(socket, cb, 'lobby');
@@ -464,7 +480,8 @@ io.on('connection', (socket) => {
     const r = c.r;
     const color = L.COLORS.find((k) => !r.players[k]);
     if (!color) return cb({ ok: false, error: 'ROOM_FULL' });
-    r.players[color] = mkPlayer(color, 'Bot', AVATARS - 1, null, true);
+    const pick = (list) => list[crypto.randomInt(list.length)];
+    r.players[color] = mkPlayer(color, 'Bot', C.BOT_AVATAR, null, true, { pawn: pick(C.PAWNS), finish: pick(C.FINISHES), dice: pick(C.DICES) });
     cb({ ok: true });
     broadcast(r);
   });

@@ -47,7 +47,13 @@ npm test
 - **Turn timer** (off / 15 / 30 / 45 s) with a countdown ring around the avatar. If a player times out twice they are put on auto-pilot until they act again.
 - **Room rules** chosen by the host: timer, extra turn on capture, extra turn on reaching home.
 - **Auto-move** when there is only one meaningful choice (toggle in settings).
-- **Quick chat** phrases (Arabic / English) next to the emoji reactions.
+- **Emoji pack**: 5 categories (faces, love, hands, fun, animals) with **animated reactions** – burst, rain of hearts, shake and spin effects – plus **12 quick phrases** (Arabic / English), all in one tabbed panel.
+- **Skins & styles** (Menu → *Customize*, or from the lobby) with a **live 3D preview**:
+  - **6 board themes**: Classic, Wood, Night neon, Royal, Ocean, Desert (local to each player);
+  - **5 pawn shapes** (pawn, crown, gem, orb, rook) × **6 finishes** (glossy, matte, gold, chrome, glass, glow) – every player sees everyone's pawns;
+  - **6 dice skins** (ivory, ruby, onyx & gold, ice, neon, wood) – the dice shows the skin of the player who rolls;
+  - **40 avatars**.
+- **Chat visible while you play**: new messages pop up on screen as a feed pill (avatar, name, text – private ones marked) without leaving the board; tap a pill to open the chat; switch it off in Settings. On wide screens (desktop/tablet landscape) the chat is **docked beside the board** and always visible.
 - **Private chat (free, no external service)**: a text chat inside each room, plus **whispers** (a private message that only the chosen player receives). Open it from the reactions panel in a match or from the lobby header; unread messages show a badge and a preview toast. Features: recipient chips, per-player **mute**, the **host can switch chat off** for the room, messages are plain text only (never HTML), capped at 200 characters, rate-limited to 5 messages per 6 seconds, invisible/bidi-override characters stripped, and late joiners / reconnecting players receive the history they are allowed to see.
 - **Result screen** with ranking and per-player stats (tokens home, captures, sixes) and a personal win counter on the menu.
 
@@ -58,19 +64,20 @@ server.js            Authoritative Express + Socket.IO server (rooms, turns, val
 shared/ludo.js       Rules + board geometry shared by server and client (single source of truth)
 public/index.html    All screens (menu, create, join, lobby, game) and modals
 public/css/style.css Design system, responsive layouts, animations
+shared/catalog.js    Skins, themes, emoji categories/effects – shared by server validation and client UI
 public/js/i18n.js    Arabic / English strings, RTL switching
 public/js/board3d.js Three.js 3D board, physical dice, camera, particles, quality tiers
 public/js/board.js   2D SVG board renderer (classic mode / fallback)
 public/vendor/       three.min.js (Three.js r128, MIT license included) – served locally, no CDN
 public/js/sound.js   Procedural sound effects & music (WebAudio – no audio files, no licensing issues)
 public/js/app.js     Client logic and Socket.IO wiring
-test/                rules.test.js, e2e.test.js (real multiplayer games), features.test.js (bots, timer, settings, chat), board3d.test.js (dice orientation + camera rotation math)
+test/                rules.test.js, e2e.test.js (real multiplayer games), features.test.js (bots, timer, settings, chat), board3d.test.js (dice orientation + camera rotation math), catalog.test.js (skins, emoji, avatars, translations)
 ```
 
 ## Socket.IO protocol (all requests use acknowledgements `{ok, error?}`)
 
 Client → server: `room:create`, `room:peek`, `room:join`, `room:rejoin`, `room:color`, `room:ready`, `room:leave`,
-`chat:send {text, to?}`, `chat:history`, `room:settings`, `room:addBot`, `room:removeBot`, `game:start`, `game:roll`, `game:move {token}`, `game:again`, `game:emoji {emoji}`, `game:chat {id}`.
+`chat:send {text, to?}`, `chat:history`, `room:skin {skin}`, `room:settings`, `room:addBot`, `room:removeBot`, `game:start`, `game:roll`, `game:move {token}`, `game:again`, `game:emoji {emoji}`, `game:chat {id}`.
 Server → client: `room:state` (full public state, broadcast after every change), `room:notice`, `game:emoji`, `game:chat` (quick phrases), `chat:msg`, `chat:history`.
 
 The server validates room membership, turn, dice state and move legality; clients can never change game state directly.
@@ -100,7 +107,12 @@ Add `?gfx=high|medium|low|classic` to the URL to force a tier for one session (u
 - The server keeps the last 60 messages **in memory** so reconnecting players get their history; they disappear when the room is closed or the server restarts. Nothing is written to disk or a database.
 - It is **not end-to-end encrypted** (the server relays the text) and there is no automatic word filter. Use the host switch and per-player mute for moderation, and serve the game over HTTPS (all common hosts do) so messages are encrypted in transit.
 
+## How skins are shared
+Pawn shape, finish and dice skin are validated against the catalog on the server, stored per player and broadcast with the room state, so everyone sees them; they can only change in the lobby. The board theme never leaves your device.
+
 ## Limitations
+- Skins and themes are visual only and need the 3D board (they have no effect in the 2D classic mode); the customize preview shows a notice when 3D is unavailable.
+- Metal finishes (gold, chrome) need reflections and fall back to *glossy* on the Low graphics tier.
 - The 3D board is verified on a software renderer (no real GPU) and by automated geometry tests; real-device frame rates on phones are not measured. The Auto tier and the automatic downgrade exist for exactly this reason – if a phone struggles, choose *Low* or *2D classic* in Settings.
 - Game state lives in server memory (no database): restarting the server ends running games.
 - One server instance only (no Redis adapter) – fine for free hosting, not for horizontal scaling.
